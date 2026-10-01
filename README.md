@@ -54,16 +54,6 @@ That's it. The installer:
 3. runs `wrangler login` if needed (browser OAuth — that's the only interaction)
 4. provisions **D1**, runs **migrations**, uploads **secrets**, **deploys**, and creates the **Email Routing rule** `you@domain → worker`
 
-## 🌐 Domains
-
-| Hostname                 | Serves                                                       |
-| ------------------------ | ------------------------------------------------------------ |
-| `mail.devartslab.com`    | This app (custom domain)                                     |
-| `docs.devartslab.com`    | Public Notion site, proxied — visitors never see `notion.so` |
-| `devartslab.com` / `www` | DevArts Lab landing page (Worker routes)                     |
-
-All three are configured in `wrangler.jsonc` `routes` and provisioned on deploy.
-
 ## ⚙️ Unified config — one file
 
 Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, cron, routes, and all app variables:
@@ -76,8 +66,6 @@ Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, c
 | `AUTO_ACCEPT_INVITES`     | `"false"`             | Auto-accept incoming invites             |
 | `INVITE_REMINDER_MINUTES` | `"30"`                | Reminder email before events (`0` = off) |
 | `SESSION_TTL_HOURS`       | `"168"`               | UI session length                        |
-| `DOCS_HOSTNAME`           | `docs.devartslab.com` | Hostname that proxies the Notion site    |
-| `NOTION_PAGE_ID`          | `61c6b798...b070`     | Root Notion page served at `docs./`      |
 
 Secrets live in `.dev.vars` locally / `wrangler secret` in prod — never committed.
 
@@ -95,6 +83,7 @@ Secrets live in `.dev.vars` locally / `wrangler secret` in prod — never commit
 │   ├── ical.ts         # RFC 5545 iCal parser + generator
 │   ├── api.ts          # REST API for the UI
 │   ├── auth.ts         # cookie session auth
+│   ├── edge.ts         # optional hostname routing (extra subdomains)
 │   └── db.ts           # D1 access layer
 ├── public/             # the UI (served via Workers Assets)
 └── test/               # vitest unit tests
