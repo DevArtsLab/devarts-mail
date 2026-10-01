@@ -9,8 +9,8 @@
   --border-strong: rgba(255, 255, 255, 0.14);
   --text: #eceef4;
   --muted: #8b91a3;
-  --accent: #f6821f;
-  --accent-soft: rgba(246, 130, 31, 0.14);
+  --accent: #88708e;
+  --accent-soft: rgba(136, 112, 142, 0.2);
   --ok: #3fb950;
   --warn: #d29922;
   --danger: #f85149;
@@ -93,7 +93,7 @@ textarea:focus {
 }
 .btn.primary {
   background: var(--accent);
-  color: #1a1005;
+  color: #f5eef7;
   border: none;
 }
 .btn.primary:hover {
@@ -132,8 +132,8 @@ textarea:focus {
   display: grid;
   place-items: center;
   background:
-    radial-gradient(600px 300px at 20% 0%, rgba(246, 130, 31, 0.08), transparent),
-    radial-gradient(600px 300px at 80% 100%, rgba(99, 102, 241, 0.07), transparent),
+    radial-gradient(600px 300px at 20% 0%, rgba(136, 112, 142, 0.12), transparent),
+    radial-gradient(600px 300px at 80% 100%, rgba(178, 152, 186, 0.08), transparent),
     var(--bg);
 }
 .login-card {
@@ -153,7 +153,7 @@ textarea:focus {
   height: 52px;
   margin: 0 auto;
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--accent), #f9a03f);
+  background: linear-gradient(135deg, var(--accent), #a78db1);
   color: #fff;
   font-weight: 700;
   font-size: 26px;
@@ -194,7 +194,7 @@ textarea:focus {
   height: 26px;
   border-radius: 8px;
   font-size: 13px;
-  background: linear-gradient(135deg, var(--accent), #f9a03f);
+  background: linear-gradient(135deg, var(--accent), #a78db1);
   display: grid;
   place-items: center;
   color: #fff;
@@ -244,7 +244,7 @@ textarea:focus {
 }
 .nav-item.active .count {
   color: var(--accent);
-  background: rgba(246, 130, 31, 0.2);
+  background: rgba(136, 112, 142, 0.3);
 }
 .sidebar-foot {
   margin-top: auto;
