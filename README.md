@@ -83,7 +83,6 @@ Secrets live in `.dev.vars` locally / `wrangler secret` in prod — never commit
 │   ├── ical.ts         # RFC 5545 iCal parser + generator
 │   ├── api.ts          # REST API for the UI
 │   ├── auth.ts         # cookie session auth
-│   ├── edge.ts         # optional hostname routing (extra subdomains)
 │   └── db.ts           # D1 access layer
 ├── public/             # the UI (served via Workers Assets)
 └── test/               # vitest unit tests

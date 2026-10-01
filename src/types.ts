@@ -6,8 +6,6 @@ export interface Env {
   // vars (wrangler.jsonc)
   MAIL_DOMAIN: string;
   PRIMARY_ADDRESS: string;
-  DOCS_HOSTNAME: string;
-  NOTION_PAGE_ID: string;
   DISPLAY_NAME: string;
   CALENDAR_NAME: string;
   CALENDAR_TZ: string;
