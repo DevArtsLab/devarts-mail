@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local dev (`npm run dev`).
+# For production set each with: wrangler secret put <NAME>
+# (or CLOUDFLARE_API_TOKEN-provisioned via scripts/setup.mjs --secrets)
+
+# Password for the web UI login (required)
+UI_PASSWORD=change-me-strong-password
+
+# HMAC key for signing session cookies (required; any long random string)
+SESSION_SECRET=change-me-long-random-string

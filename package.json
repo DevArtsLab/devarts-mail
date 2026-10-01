@@ -1,0 +1,32 @@
+{
+  "name": "devarts-mail",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DevArts Lab mail + calendar on Cloudflare Workers: inbound email, outbound sending, calendar invites (RSVP), independent calendar.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "setup": "node scripts/setup.mjs",
+    "migrate:local": "wrangler d1 migrations apply devarts-mail --local",
+    "migrate:remote": "wrangler d1 migrations apply devarts-mail --remote",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "mimetext": "^3.0.27",
+    "postal-mime": "^2.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260930.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.40.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.28.1": true,
+    "workerd@1.20260930.2": true
+  }
+}

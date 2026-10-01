@@ -1,0 +1,100 @@
+/**
+ * ============================================================================
+ * devarts-mail — UNIFIED CONFIG
+ * ============================================================================
+ * Single source of truth for the whole ecosystem: compute, storage, bindings,
+ * triggers, variables, and environment overrides.
+ *
+ * Secrets are NOT committed: put them in `.dev.vars` for `npm run dev`,
+ * or set them with `wrangler secret put <NAME>` for production.
+ * See `.dev.vars.example` for the full list of secrets.
+ * ============================================================================
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "devarts-mail",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-30",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // ------------------------------------------------------------------
+  // Custom domain: serves the app at https://mail.devartslab.com
+  // (custom_domain auto-provisions the DNS record + TLS cert)
+  // ------------------------------------------------------------------
+  "routes": [{ "pattern": "mail.devartslab.com", "custom_domain": true }],
+  // keep the workers.dev URL as a fallback alongside the custom domain
+  "workers_dev": true,
+
+  // ------------------------------------------------------------------
+  // Static UI (served by Workers Assets at the Worker's own origin)
+  // ------------------------------------------------------------------
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+  },
+
+  // ------------------------------------------------------------------
+  // Application variables — all non-secret settings live here
+  // ------------------------------------------------------------------
+  "vars": {
+    // Domain and identity
+    "MAIL_DOMAIN": "devartslab.com",
+    "PRIMARY_ADDRESS": "amir@devartslab.com",
+    "DISPLAY_NAME": "Amir | DevArts Lab",
+    "CALENDAR_NAME": "DevArts Lab",
+    "CALENDAR_TZ": "America/Los_Angeles",
+
+    // Behavior
+    "AUTO_ACCEPT_INVITES": "false", // "true" to auto-reply ACCEPTED to invites
+    "INVITE_REMINDER_MINUTES": "30", // reminder email before events (0=off)
+    "SESSION_TTL_HOURS": "168", // UI session length (7 days)
+
+    // Provisioning (used by scripts/setup.mjs)
+    "D1_DATABASE_NAME": "devarts-mail",
+    "ROUTE_CONTACT_TO_WORKER": "false", // keep contact@ forward rule intact
+  },
+
+  // ------------------------------------------------------------------
+  // Storage
+  // ------------------------------------------------------------------
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "devarts-mail",
+      // Filled in by `npm run setup` (or `wrangler d1 create devarts-mail`)
+      "database_id": "fde20434-b33c-4674-ba01-e9b031200b55",
+      "migrations_dir": "migrations",
+    },
+  ],
+
+  // ------------------------------------------------------------------
+  // Outbound email (Email Sending). "remote": true lets `wrangler dev`
+  // send real email through your account.
+  // ------------------------------------------------------------------
+  "send_email": [
+    // No destination_address: unrestricted outbound so we can reply
+    // to any organizer/contact. Inbound address is configured via
+    // Email Routing rules (see scripts/setup.mjs).
+    // "remote": true lets `wrangler dev` send real email too.
+    { "name": "EMAIL", "remote": true },
+  ],
+
+  // ------------------------------------------------------------------
+  // Scheduled work: invite auto-accept, reminders, cleanup
+  // ------------------------------------------------------------------
+  "triggers": {
+    "crons": ["*/10 * * * *"],
+  },
+
+  // ------------------------------------------------------------------
+  // Environments (optional overrides; `wrangler deploy --env staging`)
+  // ------------------------------------------------------------------
+  "env": {
+    "staging": {
+      "name": "devarts-mail-staging",
+      "vars": {
+        "AUTO_ACCEPT_INVITES": "true",
+      },
+    },
+  },
+}

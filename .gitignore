@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env
+dist/
+*.tsbuildinfo
+.DS_Store
+worker-configuration.d.ts
+.playwright-mcp/

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DevArts Mail</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23f6821f'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='system-ui' font-weight='700'>D</text></svg>"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- ==================== LOGIN ==================== -->
+    <div id="login-view" class="login hidden">
+      <form id="login-form" class="login-card">
+        <div class="login-logo">D</div>
+        <h1>DevArts Mail</h1>
+        <p class="sub">Self-hosted mail + calendar on Cloudflare</p>
+        <input
+          id="login-password"
+          type="password"
+          placeholder="Password"
+          autocomplete="current-password"
+          required
+        />
+        <button type="submit" class="btn primary block">Sign in</button>
+        <p id="login-error" class="error"></p>
+      </form>
+    </div>
+
+    <!-- ==================== APP ==================== -->
+    <div id="app" class="app hidden">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-dot">D</span> DevArts Lab</div>
+        <button id="compose-open" class="btn primary block">+ Compose</button>
+        <nav>
+          <button data-tab="inbox" class="nav-item active">
+            <span class="ico">&#9993;</span> Inbox
+            <span id="inbox-count" class="count"></span>
+          </button>
+          <button data-tab="sent" class="nav-item">
+            <span class="ico">&#8599;</span> Sent
+          </button>
+          <button data-tab="calendar" class="nav-item">
+            <span class="ico">&#128197;</span> Calendar
+          </button>
+        </nav>
+        <div class="sidebar-foot">
+          <div id="me-address" class="me"></div>
+          <button id="logout" class="btn ghost block">Sign out</button>
+        </div>
+      </aside>
+
+      <main>
+        <!-- MAIL -->
+        <section id="tab-inbox" class="panel">
+          <div class="split">
+            <div id="inbox-list" class="list"></div>
+            <div id="inbox-detail" class="detail empty">Select a message</div>
+          </div>
+        </section>
+
+        <section id="tab-sent" class="panel hidden">
+          <div class="split">
+            <div id="sent-list" class="list"></div>
+            <div id="sent-detail" class="detail empty">Select a message</div>
+          </div>
+        </section>
+
+        <!-- CALENDAR -->
+        <section id="tab-calendar" class="panel hidden">
+          <div class="cal-header">
+            <button id="cal-prev" class="btn ghost icon">&#8249;</button>
+            <button id="cal-today" class="btn ghost">Today</button>
+            <button id="cal-next" class="btn ghost icon">&#8250;</button>
+            <h2 id="cal-title"></h2>
+            <span class="spacer"></span>
+            <a href="/api/calendar.ics" class="btn ghost" download>Export .ics</a>
+            <button id="cal-new" class="btn primary">+ Event</button>
+          </div>
+          <div id="cal-grid" class="cal-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <!-- ==================== COMPOSE MODAL ==================== -->
+    <dialog id="compose-modal">
+      <form id="compose-form" class="modal-card">
+        <div class="modal-head">
+          <h3>New message</h3>
+          <button type="button" class="x" data-close>&times;</button>
+        </div>
+        <input id="compose-to" placeholder="To — comma separated" required />
+        <input id="compose-subject" placeholder="Subject" required />
+        <textarea id="compose-body" placeholder="Write something…" rows="10"></textarea>
+        <div class="modal-foot">
+          <span id="compose-status" class="sub"></span>
+          <button type="submit" class="btn primary">Send</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ==================== EVENT MODAL ==================== -->
+    <dialog id="event-modal">
+      <form id="event-form" class="modal-card" method="dialog">
+        <div class="modal-head">
+          <h3 id="event-modal-title">Event</h3>
+          <button type="button" class="x" data-close>&times;</button>
+        </div>
+        <input id="ev-summary" placeholder="Title" required />
+        <input id="ev-location" placeholder="Location" />
+        <div class="row">
+          <label>Start<input id="ev-start" type="datetime-local" required /></label>
+          <label>End<input id="ev-end" type="datetime-local" required /></label>
+        </div>
+        <input id="ev-attendees" placeholder="Invite emails — comma separated" />
+        <textarea id="ev-description" placeholder="Description" rows="3"></textarea>
+        <label class="check"
+          ><input id="ev-notify" type="checkbox" checked /> Email invites / updates to
+          attendees</label
+        >
+        <div class="modal-foot">
+          <button type="button" id="ev-delete" class="btn danger hidden">Delete</button>
+          <button type="button" id="ev-ics" class="btn ghost hidden">.ics</button>
+          <span class="spacer"></span>
+          <button type="submit" id="ev-save" class="btn primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toasts"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
