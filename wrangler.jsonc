@@ -18,10 +18,21 @@
   "compatibility_flags": ["nodejs_compat"],
 
   // ------------------------------------------------------------------
-  // Custom domain: serves the app at https://mail.devartslab.com
-  // (custom_domain auto-provisions the DNS record + TLS cert)
+  // Custom domains (auto-provision the DNS record + TLS cert):
+  //   mail.   -> the mail/calendar app
+  //   docs.   -> reverse-proxy of the public Notion site (NOTION_PAGE_ID)
+  //   apex+www-> DevArts Lab landing page
   // ------------------------------------------------------------------
-  "routes": [{ "pattern": "mail.devartslab.com", "custom_domain": true }],
+  "routes": [
+    // custom_domain: creates its own DNS record + cert (requires the
+    // hostname to have no other DNS records)
+    { "pattern": "mail.devartslab.com", "custom_domain": true },
+    { "pattern": "docs.devartslab.com", "custom_domain": true },
+    // plain routes: run on the existing (proxied) apex/www DNS records,
+    // intercepting all requests before the origin
+    { "pattern": "devartslab.com/*", "zone_name": "devartslab.com" },
+    { "pattern": "www.devartslab.com/*", "zone_name": "devartslab.com" },
+  ],
   // keep the workers.dev URL as a fallback alongside the custom domain
   "workers_dev": true,
 
@@ -40,6 +51,8 @@
     // Domain and identity
     "MAIL_DOMAIN": "devartslab.com",
     "PRIMARY_ADDRESS": "amir@devartslab.com",
+    "DOCS_HOSTNAME": "docs.devartslab.com", // proxied to the Notion site below
+    "NOTION_PAGE_ID": "61c6b79808ce476290c753165851b070",
     "DISPLAY_NAME": "Amir | DevArts Lab",
     "CALENDAR_NAME": "DevArts Lab",
     "CALENDAR_TZ": "America/Los_Angeles",
