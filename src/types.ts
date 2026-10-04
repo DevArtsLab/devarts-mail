@@ -7,8 +7,8 @@ export interface Env {
   MAIL_DOMAIN: string;
   PRIMARY_ADDRESS: string;
   DISPLAY_NAME: string;
-  /** Extra send/receive identities: "addr=Display Name;addr2=Name2" */
-  EXTRA_IDENTITIES: string;
+  /** Extra send/receive identities (secret): "addr=Display Name;addr2=Name2" */
+  EXTRA_IDENTITIES?: string;
   CALENDAR_NAME: string;
   CALENDAR_TZ: string;
   AUTO_ACCEPT_INVITES: string;

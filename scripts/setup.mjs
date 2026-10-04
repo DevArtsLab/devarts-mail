@@ -72,11 +72,12 @@ const PRIMARY = vars.PRIMARY_ADDRESS;
 const DOMAIN = vars.MAIL_DOMAIN;
 
 // All addresses routed to the worker: primary + EXTRA_IDENTITIES
-// ("addr=Display Name;addr2=Name2").
+// ("addr=Display Name;addr2=Name2"). EXTRA_IDENTITIES is a secret —
+// comes from env / .dev.vars, never from the committed config.
+const EXTRA_IDENTITIES = env("EXTRA_IDENTITIES") || "";
 const ADDRESSES = [
   PRIMARY,
-  ...(vars.EXTRA_IDENTITIES || "")
-    .split(";")
+  ...EXTRA_IDENTITIES.split(";")
     .map((p) => p.split("=")[0].trim().toLowerCase())
     .filter(Boolean),
 ].filter((a, i, arr) => a && arr.indexOf(a) === i);
@@ -146,7 +147,7 @@ console.log("-> applying migrations (remote)");
 run(`npx wrangler d1 migrations apply ${D1_NAME} --remote`);
 
 // --- 3. secrets ----------------------------------------------------------------
-const SECRET_KEYS = ["UI_PASSWORD", "SESSION_SECRET"];
+const SECRET_KEYS = ["UI_PASSWORD", "SESSION_SECRET", "EXTRA_IDENTITIES"];
 for (const key of SECRET_KEYS) {
   const val = env(key);
   if (!val) {

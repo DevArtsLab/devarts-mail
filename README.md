@@ -62,11 +62,17 @@ Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, c
 | Var                       | Default               | Meaning                                  |
 | ------------------------- | --------------------- | ---------------------------------------- |
 | `MAIL_DOMAIN`             | `devartslab.com`      | Your domain                              |
-| `PRIMARY_ADDRESS`         | `amir@devartslab.com` | Send/receive identity                    |
+| `PRIMARY_ADDRESS`         | `amir@devartslab.com` | Primary send/receive identity            |
 | `DISPLAY_NAME`            | `Amir \| DevArts Lab` | From-name on outgoing mail               |
 | `AUTO_ACCEPT_INVITES`     | `"false"`             | Auto-accept incoming invites             |
 | `INVITE_REMINDER_MINUTES` | `"30"`                | Reminder email before events (`0` = off) |
 | `SESSION_TTL_HOURS`       | `"168"`               | UI session length                        |
+
+| Secret             | Meaning                                                                                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UI_PASSWORD`      | Web UI login password                                                                                                                                                |
+| `SESSION_SECRET`   | HMAC key for session cookies                                                                                                                                         |
+| `EXTRA_IDENTITIES` | Extra send/receive addresses: `alias@domain=Name;alias2@domain` — kept secret so your addresses stay out of this repo. Each gets a routing rule via `npm run setup`. |
 
 Secrets live in `.dev.vars` locally / `wrangler secret` in prod — never committed.
 

@@ -7,3 +7,9 @@ UI_PASSWORD=change-me-strong-password
 
 # HMAC key for signing session cookies (required; any long random string)
 SESSION_SECRET=change-me-long-random-string
+
+# Extra send/receive identities beyond PRIMARY_ADDRESS (optional).
+# Kept as a secret so your addresses stay out of this public repo.
+# Format: semicolon-separated "address=Display Name" pairs (name optional).
+# Each address gets an Email Routing rule -> the worker via scripts/setup.mjs.
+# EXTRA_IDENTITIES=alias@yourdomain.com=Alias Name;alias2@yourdomain.com
