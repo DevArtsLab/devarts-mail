@@ -3,6 +3,7 @@
 import type { Env } from "./types";
 import { parseInbound, sendMail } from "./mail";
 import { parseIcs, buildReplyIcs } from "./ical";
+import { identityForEmail, primaryIdentity } from "./identities";
 import {
   insertEmail,
   upsertEvent,
@@ -96,16 +97,19 @@ export async function respondToInvite(
   if (!ev || !ev.organizerEmail) return { sent: false, error: "no organizer" };
 
   // Thread the reply onto the original invite so Gmail correlates it.
+  // The RSVP goes out as whichever of our identities was invited.
   let inReplyTo: string | undefined;
+  let identity = primaryIdentity(env);
   const srcId = sourceEmailId || ev.sourceEmailId;
   if (srcId) {
     const orig = await getEmail(env, srcId);
     inReplyTo = orig?.message_id || undefined;
+    if (orig) identity = identityForEmail(env, orig) || identity;
   }
 
   const ics = buildReplyIcs(
     ev,
-    { email: env.PRIMARY_ADDRESS, name: env.DISPLAY_NAME },
+    { email: identity.address, name: identity.name },
     partstat,
   );
   const verb =
@@ -119,19 +123,20 @@ export async function respondToInvite(
   let error: string | undefined;
   try {
     const messageId = await sendMail(env, {
+      from: identity,
       to: ev.organizerEmail,
       subject: `${verb}: ${ev.summary}`,
-      text: `${env.DISPLAY_NAME} has ${verb.toLowerCase()} this invitation.`,
+      text: `${identity.name} has ${verb.toLowerCase()} this invitation.`,
       ics: { data: ics, method: "REPLY", filename: "invite.ics" },
       inReplyTo,
       references: inReplyTo,
     });
     await insertEmail(env, {
       direction: "out",
-      from: env.PRIMARY_ADDRESS,
+      from: identity.address,
       to: [ev.organizerEmail],
       subject: `${verb}: ${ev.summary}`,
-      text: `${env.DISPLAY_NAME} has ${verb.toLowerCase()} this invitation.`,
+      text: `${identity.name} has ${verb.toLowerCase()} this invitation.`,
       messageId,
       inReplyTo: inReplyTo || null,
       hasCalendar: true,

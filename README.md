@@ -20,7 +20,8 @@ No Google. No iCloud. No third-party mail service.
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | 📥 **Inbound email**        | Email Routing → Worker `email()` handler → parsed & stored in D1                                                                   |
 | 📤 **Outbound email**       | Send real mail as `you@yourdomain.com` via the `send_email` binding                                                                |
-| 📅 **Calendar invites**     | Parses `text/calendar`, RSVP **Yes / Maybe / No** sends a real iCal `METHOD:REPLY` — organizers see `you@yourdomain.com: Accepted` |
+| � **Multi-identity**        | Multiple addresses per mailbox — pick an identity, send as it, RSVP from the invited address                                       |
+| �📅 **Calendar invites**    | Parses `text/calendar`, RSVP **Yes / Maybe / No** sends a real iCal `METHOD:REPLY` — organizers see `you@yourdomain.com: Accepted` |
 | 🗓️ **Independent calendar** | Create/edit/delete events in your own calendar, send `REQUEST`/`CANCEL` invites, import `.ics` anywhere                            |
 | ⏰ **Reminders**            | Cron trigger emails you before events                                                                                              |
 | 🔐 **Auth**                 | Password login, HMAC-signed session cookie                                                                                         |

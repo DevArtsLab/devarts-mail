@@ -12,6 +12,7 @@ import {
   safeEqual,
 } from "./auth";
 import { buildInviteIcs, buildCancelIcs, buildExportIcs, newUid } from "./ical";
+import { findIdentity, listIdentities, primaryIdentity } from "./identities";
 
 function json(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), {
@@ -59,13 +60,15 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
       displayName: env.DISPLAY_NAME,
       calendarName: env.CALENDAR_NAME,
       autoAccept: env.AUTO_ACCEPT_INVITES === "true",
+      identities: listIdentities(env),
     });
   }
 
   // ---- emails ----
   if (path === "/api/emails" && method === "GET") {
     const box = url.searchParams.get("box") === "out" ? "out" : "in";
-    return json({ emails: await db.listEmails(env, box) });
+    const address = url.searchParams.get("address") || undefined;
+    return json({ emails: await db.listEmails(env, box, address) });
   }
 
   const emailMatch = path.match(/^\/api\/emails\/([0-9a-f-]{36})(\/read|\/rsvp)?$/);
@@ -104,14 +107,18 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
       subject: string;
       text?: string;
       html?: string;
+      from?: string;
       inReplyTo?: string;
     }>();
     if (!body.to || !body.subject) return err("to and subject required");
+    const identity = body.from ? findIdentity(env, body.from) : primaryIdentity(env);
+    if (!identity) return err("unknown sender address");
     const toList = body.to
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     const messageId = await sendMail(env, {
+      from: identity,
       to: toList,
       subject: body.subject,
       text: body.text,
@@ -121,7 +128,7 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
     });
     await db.insertEmail(env, {
       direction: "out",
-      from: env.PRIMARY_ADDRESS,
+      from: identity.address,
       to: toList,
       subject: body.subject,
       text: body.text,
@@ -142,9 +149,15 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
   }
 
   if (path === "/api/events" && method === "POST") {
-    const b = await req.json<Partial<CalEvent> & { sendInvites?: boolean }>();
+    const b = await req.json<
+      Partial<CalEvent> & { sendInvites?: boolean; organizer?: string }
+    >();
     if (!b.summary || !b.dtstart || !b.dtend)
       return err("summary, dtstart, dtend required");
+    const organizer = b.organizer
+      ? findIdentity(env, b.organizer)
+      : primaryIdentity(env);
+    if (!organizer) return err("unknown organizer address");
     const ev: CalEvent = {
       uid: newUid(env.MAIL_DOMAIN),
       summary: b.summary,
@@ -153,8 +166,8 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
       dtstart: b.dtstart,
       dtend: b.dtend,
       allDay: !!b.allDay,
-      organizerEmail: env.PRIMARY_ADDRESS,
-      organizerName: env.DISPLAY_NAME,
+      organizerEmail: organizer.address,
+      organizerName: organizer.name,
       attendees: (b.attendees || []).map((a) => ({
         ...a,
         partstat: "NEEDS-ACTION",
@@ -238,11 +251,13 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
 
 async function sendInviteEmails(env: Env, ev: CalEvent): Promise<void> {
   const ics = buildInviteIcs(ev);
+  const sender = findIdentity(env, ev.organizerEmail) || primaryIdentity(env);
   for (const a of ev.attendees) {
     await sendMail(env, {
+      from: sender,
       to: a.email,
       subject: `Invitation: ${ev.summary}`,
-      text: `${env.DISPLAY_NAME} invited you to "${ev.summary}".`,
+      text: `${sender.name} invited you to "${ev.summary}".`,
       ics: { data: ics, method: "REQUEST" },
     });
   }
@@ -250,8 +265,10 @@ async function sendInviteEmails(env: Env, ev: CalEvent): Promise<void> {
 
 async function sendCancelEmails(env: Env, ev: CalEvent): Promise<void> {
   const ics = buildCancelIcs(ev);
+  const sender = findIdentity(env, ev.organizerEmail) || primaryIdentity(env);
   for (const a of ev.attendees) {
     await sendMail(env, {
+      from: sender,
       to: a.email,
       subject: `Cancelled: ${ev.summary}`,
       text: `"${ev.summary}" has been cancelled.`,

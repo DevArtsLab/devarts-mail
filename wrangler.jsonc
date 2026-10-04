@@ -41,6 +41,9 @@
     "MAIL_DOMAIN": "devartslab.com",
     "PRIMARY_ADDRESS": "amir@devartslab.com",
     "DISPLAY_NAME": "Amir | DevArts Lab",
+    // Additional send/receive identities: "addr=Display Name;addr2=Name2"
+    // (each gets an Email Routing rule -> this worker via scripts/setup.mjs)
+    "EXTRA_IDENTITIES": "pypi@devartslab.com=PyPI | DevArts Lab",
     "CALENDAR_NAME": "DevArts Lab",
     "CALENDAR_TZ": "America/Los_Angeles",
 

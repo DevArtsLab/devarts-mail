@@ -10,7 +10,8 @@
  *   2. Applies migrations (remote).
  *   3. Pushes secrets from .dev.vars -> `wrangler secret put`.
  *   4. Deploys the Worker.
- *   5. Configures the Email Routing rule: PRIMARY_ADDRESS -> this Worker.
+ *   5. Configures Email Routing rules: PRIMARY_ADDRESS + EXTRA_IDENTITIES
+ *      -> this Worker.
  *
  * Auth (either works):
  *   - CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID env (or in .dev.vars), or
@@ -69,6 +70,16 @@ const WORKER_NAME = cfg.name;
 const D1_NAME = vars.D1_DATABASE_NAME || "devarts-mail";
 const PRIMARY = vars.PRIMARY_ADDRESS;
 const DOMAIN = vars.MAIL_DOMAIN;
+
+// All addresses routed to the worker: primary + EXTRA_IDENTITIES
+// ("addr=Display Name;addr2=Name2").
+const ADDRESSES = [
+  PRIMARY,
+  ...(vars.EXTRA_IDENTITIES || "")
+    .split(";")
+    .map((p) => p.split("=")[0].trim().toLowerCase())
+    .filter(Boolean),
+].filter((a, i, arr) => a && arr.indexOf(a) === i);
 
 const run = (cmd, opts = {}) =>
   execSync(cmd, {
@@ -156,7 +167,7 @@ run(`npx wrangler deploy`);
 
 // --- 5. email routing rule --------------------------------------------------------
 if (API_TOKEN) {
-  console.log(`-> configuring Email Routing for ${PRIMARY}`);
+  console.log(`-> configuring Email Routing for ${ADDRESSES.join(", ")}`);
   const cf = cfRaw;
   const zones = await cf("GET", `/zones?name=${DOMAIN}`);
   const zoneId = zones?.[0]?.id;
@@ -169,28 +180,33 @@ if (API_TOKEN) {
   await cf("PUT", `/zones/${zoneId}/email/routing`, { enabled: true }).catch(() => {});
 
   const rules = await cf("GET", `/zones/${zoneId}/email/routing/rules`);
-  const existing = rules.find((r) => r.matchers?.[0]?.value === PRIMARY);
-  if (existing) {
-    await cf("PUT", `/zones/${zoneId}/email/routing/rules/${existing.tag}`, {
-      ...existing,
-      enabled: true,
-      actions: [{ type: "worker", value: [WORKER_NAME] }],
-    });
-    console.log(`   updated existing rule -> worker "${WORKER_NAME}"`);
-  } else {
-    await cf("POST", `/zones/${zoneId}/email/routing/rules`, {
-      name: `${WORKER_NAME}: ${PRIMARY}`,
-      enabled: true,
-      matchers: [{ type: "literal", field: "to", value: PRIMARY }],
-      actions: [{ type: "worker", value: [WORKER_NAME] }],
-    });
-    console.log(`   created rule ${PRIMARY} -> worker "${WORKER_NAME}"`);
+  for (const addr of ADDRESSES) {
+    const existing = rules.find(
+      (r) => r.matchers?.[0]?.value?.toLowerCase() === addr.toLowerCase(),
+    );
+    if (existing) {
+      await cf("PUT", `/zones/${zoneId}/email/routing/rules/${existing.tag}`, {
+        ...existing,
+        enabled: true,
+        actions: [{ type: "worker", value: [WORKER_NAME] }],
+      });
+      console.log(`   updated existing rule ${addr} -> worker "${WORKER_NAME}"`);
+    } else {
+      await cf("POST", `/zones/${zoneId}/email/routing/rules`, {
+        name: `${WORKER_NAME}: ${addr}`,
+        enabled: true,
+        matchers: [{ type: "literal", field: "to", value: addr }],
+        actions: [{ type: "worker", value: [WORKER_NAME] }],
+      });
+      console.log(`   created rule ${addr} -> worker "${WORKER_NAME}"`);
+    }
   }
   console.log("   (contact@ rules left untouched)");
 } else {
   console.log("   ! no API token or wrangler login — skipped email routing setup.");
   console.log(`     Manually: Dashboard -> ${DOMAIN} -> Email Routing -> Rules ->`);
-  console.log(`     ${PRIMARY} -> Send to Worker -> ${WORKER_NAME}`);
+  for (const addr of ADDRESSES)
+    console.log(`     ${addr} -> Send to Worker -> ${WORKER_NAME}`);
 }
 
 console.log("\nDone. Open https://" + WORKER_NAME + ".<subdomain>.workers.dev");

@@ -47,6 +47,7 @@ body {
 
 /* ---------- buttons / inputs ---------- */
 input,
+select,
 textarea {
   font: inherit;
   color: var(--text);
@@ -60,6 +61,7 @@ textarea {
     box-shadow 0.15s;
 }
 input:focus,
+select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--accent);
@@ -198,6 +200,11 @@ textarea:focus {
   display: grid;
   place-items: center;
   color: #fff;
+}
+.identity-picker {
+  font-size: 12px;
+  padding: 7px 10px;
+  background: var(--panel-2);
 }
 .sidebar nav {
   display: flex;
@@ -338,6 +345,11 @@ main {
 .badge.reply {
   background: rgba(63, 185, 80, 0.14);
   color: var(--ok);
+}
+.badge.to {
+  background: var(--panel-2);
+  color: var(--muted);
+  text-transform: none;
 }
 
 /* ---------- detail ---------- */
@@ -633,6 +645,7 @@ dialog::backdrop {
   }
   .sidebar .brand,
   .sidebar .me,
+  .sidebar .identity-picker,
   .nav-item .count {
     display: none;
   }

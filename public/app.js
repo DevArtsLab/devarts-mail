@@ -34,6 +34,7 @@ function toast(msg, kind = "ok") {
 
 let state = {
   cfg: null,
+  identity: "all", // "all" or one of cfg.identities[].address
   emails: { in: [], out: [] },
   events: [],
   calCursor: new Date(),
@@ -88,8 +89,29 @@ function switchTab(name) {
 }
 
 // ------------------------------------------------------------------ mail list
+const parseAddrs = (j) => {
+  try {
+    return JSON.parse(j);
+  } catch {
+    return [];
+  }
+};
+
+// Which of our identities an inbound email was addressed to (to/cc).
+const ourRecipientOf = (m) => {
+  const ids = state.cfg?.identities || [];
+  const rcpts = [...parseAddrs(m.to_addresses), ...parseAddrs(m.cc_addresses)];
+  for (const r of rcpts) {
+    const hit = ids.find((i) => i.address === String(r).toLowerCase());
+    if (hit) return hit.address;
+  }
+  return "";
+};
+
 async function loadBox(box) {
-  const { emails } = await api(`/api/emails?box=${box}`);
+  const addr =
+    state.identity === "all" ? "" : `&address=${encodeURIComponent(state.identity)}`;
+  const { emails } = await api(`/api/emails?box=${box}${addr}`);
   state.emails[box] = emails;
   if (box === "in") {
     const unread = emails.filter((m) => !m.read).length;
@@ -97,6 +119,7 @@ async function loadBox(box) {
   }
   const list = $(box === "in" ? "#inbox-list" : "#sent-list");
   list.innerHTML = emails.length ? "" : `<div class="item sub">No messages yet</div>`;
+  const multi = (state.cfg?.identities?.length || 0) > 1;
   for (const m of emails) {
     const div = document.createElement("div");
     div.className =
@@ -106,8 +129,15 @@ async function loadBox(box) {
     const badge = m.has_calendar
       ? `<span class="badge ${m.calendar_method === "CANCEL" ? "cancel" : m.calendar_method === "REPLY" ? "reply" : ""}">${esc(m.calendar_method || "invite")}</span>`
       : "";
+    // In the combined view, tag which address received/sent each message.
+    const whoBadge =
+      multi && state.identity === "all"
+        ? `<span class="badge to">${esc(
+            box === "in" ? ourRecipientOf(m) : m.from_address,
+          )}</span>`
+        : "";
     div.innerHTML = `
-      <div class="from">${esc(box === "in" ? m.from_address : joinAddrs(m.to_addresses))} ${badge}</div>
+      <div class="from">${esc(box === "in" ? m.from_address : joinAddrs(m.to_addresses))} ${badge} ${whoBadge}</div>
       <div class="subj">${esc(m.subject) || "(no subject)"}</div>
       <div class="meta"><span>${fmtDate(m.received_at)}</span></div>`;
     div.onclick = () => openEmail(m.id, box);
@@ -190,11 +220,19 @@ async function openEmail(id, box) {
     }),
   );
   detail.querySelector("#btn-reply").onclick = () => {
+    // Reply as the identity that was addressed (inbox) or that sent (sent box).
+    const from =
+      box === "in"
+        ? ourRecipientOf(email)
+        : (state.cfg?.identities || []).find(
+            (i) => i.address === email.from_address.toLowerCase(),
+          )?.address || "";
     openCompose(
-      email.from_address,
+      box === "in" ? email.from_address : joinAddrs(email.to_addresses),
       "Re: " + (email.subject || ""),
       "",
       email.message_id,
+      from,
     );
   };
   detail.querySelector("#btn-del").onclick = async () => {
@@ -208,7 +246,12 @@ async function openEmail(id, box) {
 
 // ------------------------------------------------------------------ compose
 const composeDlg = $("#compose-modal");
-function openCompose(to = "", subject = "", body = "", inReplyTo = "") {
+function openCompose(to = "", subject = "", body = "", inReplyTo = "", from = "") {
+  const sel = $("#compose-from");
+  sel.value =
+    from ||
+    (state.identity !== "all" ? state.identity : state.cfg?.primaryAddress) ||
+    sel.value;
   $("#compose-to").value = to;
   $("#compose-subject").value = subject;
   $("#compose-body").value = body;
@@ -229,6 +272,7 @@ $("#compose-form").addEventListener("submit", async (e) => {
     await api("/api/send", {
       method: "POST",
       body: {
+        from: $("#compose-from").value,
         to: $("#compose-to").value,
         subject: $("#compose-subject").value,
         text: $("#compose-body").value,
@@ -336,6 +380,14 @@ function openEventModal(ev, date) {
   $("#ev-start").value = toLocalInput(start);
   $("#ev-end").value = toLocalInput(end);
   $("#ev-attendees").value = (ev?.attendees || []).map((a) => a.email).join(", ");
+  // Organizer is fixed once the event exists.
+  const orgSel = $("#ev-organizer");
+  orgSel.disabled = !!ev;
+  if (!ev)
+    orgSel.value =
+      state.identity !== "all" ? state.identity : state.cfg?.primaryAddress;
+  else if ((state.cfg?.identities || []).some((i) => i.address === ev.organizerEmail))
+    orgSel.value = ev.organizerEmail;
   $("#ev-delete").classList.toggle("hidden", !ev);
   $("#ev-ics").classList.toggle("hidden", !ev);
   $("#ev-ics").onclick = () => {
@@ -409,7 +461,7 @@ $("#event-form").addEventListener("submit", async (e) => {
     } else {
       await api("/api/events", {
         method: "POST",
-        body: { ...body, sendInvites: notify },
+        body: { ...body, organizer: $("#ev-organizer").value, sendInvites: notify },
       });
       toast("Event created");
     }
@@ -424,7 +476,43 @@ $("#event-form").addEventListener("submit", async (e) => {
 // ------------------------------------------------------------------ boot
 async function boot() {
   state.cfg = await api("/api/config");
-  $("#me-address").textContent = state.cfg.primaryAddress;
+  const ids = state.cfg.identities?.length
+    ? state.cfg.identities
+    : [{ address: state.cfg.primaryAddress, name: state.cfg.displayName }];
+
+  const idSel = $("#identity-picker");
+  idSel.innerHTML =
+    (ids.length > 1 ? `<option value="all">All addresses</option>` : "") +
+    ids
+      .map((i) => `<option value="${esc(i.address)}">${esc(i.address)}</option>`)
+      .join("");
+  state.identity = ids.length > 1 ? "all" : ids[0].address;
+  idSel.value = state.identity;
+
+  const fromOpts = ids
+    .map(
+      (i) =>
+        `<option value="${esc(i.address)}">${esc(
+          i.name && i.name !== i.address ? `${i.name} <${i.address}>` : i.address,
+        )}</option>`,
+    )
+    .join("");
+  $("#compose-from").innerHTML = fromOpts;
+  $("#ev-organizer").innerHTML = fromOpts;
+
+  const showMe = () => {
+    $("#me-address").textContent =
+      state.identity === "all" ? `${ids.length} addresses` : state.identity;
+  };
+  showMe();
+  idSel.onchange = () => {
+    state.identity = idSel.value;
+    state.selectedId = null;
+    showMe();
+    loadBox("in");
+    loadBox("out");
+  };
+
   await Promise.all([loadBox("in"), refreshEvents()]);
   showApp();
 }

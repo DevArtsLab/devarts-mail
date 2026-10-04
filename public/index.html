@@ -39,6 +39,7 @@
     <div id="app" class="app hidden">
       <aside class="sidebar">
         <div class="brand"><span class="brand-dot">D</span> DevArts Lab</div>
+        <select id="identity-picker" class="identity-picker"></select>
         <button id="compose-open" class="btn primary block">+ Compose</button>
         <nav>
           <button data-tab="inbox" class="nav-item active">
@@ -97,6 +98,7 @@
           <h3>New message</h3>
           <button type="button" class="x" data-close>&times;</button>
         </div>
+        <select id="compose-from"></select>
         <input id="compose-to" placeholder="To — comma separated" required />
         <input id="compose-subject" placeholder="Subject" required />
         <textarea id="compose-body" placeholder="Write something…" rows="10"></textarea>
@@ -121,6 +123,7 @@
           <label>End<input id="ev-end" type="datetime-local" required /></label>
         </div>
         <input id="ev-attendees" placeholder="Invite emails — comma separated" />
+        <label>Organizer<select id="ev-organizer"></select></label>
         <textarea id="ev-description" placeholder="Description" rows="3"></textarea>
         <label class="check"
           ><input id="ev-notify" type="checkbox" checked /> Email invites / updates to

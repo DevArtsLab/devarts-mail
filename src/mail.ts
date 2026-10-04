@@ -65,6 +65,8 @@ export async function parseInbound(rawStream: ReadableStream): Promise<ParsedInb
 }
 
 export interface Outbound {
+  /** Sender identity. Defaults to PRIMARY_ADDRESS / DISPLAY_NAME. */
+  from?: { address: string; name?: string };
   to: string | string[];
   subject: string;
   text?: string;
@@ -82,9 +84,11 @@ export interface Outbound {
 /** Send an email through the Email Sending binding. Returns message id. */
 export async function sendMail(env: Env, msg: Outbound): Promise<string> {
   const msg_id = `<${crypto.randomUUID()}@${env.MAIL_DOMAIN}>`;
+  const fromAddr = msg.from?.address || env.PRIMARY_ADDRESS;
+  const fromName = msg.from?.name ?? env.DISPLAY_NAME;
 
   const mime = createMimeMessage();
-  mime.setSender({ name: env.DISPLAY_NAME, addr: env.PRIMARY_ADDRESS });
+  mime.setSender({ name: fromName, addr: fromAddr });
   const toList = Array.isArray(msg.to) ? msg.to : [msg.to];
   mime.setRecipients(toList.map((addr) => ({ addr })));
   mime.setSubject(msg.subject);
@@ -110,7 +114,7 @@ export async function sendMail(env: Env, msg: Outbound): Promise<string> {
     });
   }
 
-  const email = new EmailMessage(env.PRIMARY_ADDRESS, toList.join(","), mime.asRaw());
+  const email = new EmailMessage(fromAddr, toList.join(","), mime.asRaw());
   await env.EMAIL.send(email);
   return msg_id;
 }

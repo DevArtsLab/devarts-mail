@@ -55,12 +55,30 @@ export async function insertEmail(
 export async function listEmails(
   env: Env,
   direction: "in" | "out",
+  address?: string,
   limit = 100,
 ): Promise<StoredEmail[]> {
+  const cols = `id, direction, from_address, to_addresses, cc_addresses, subject,
+            has_calendar, calendar_method, event_uid, read, received_at`;
+  if (address) {
+    const like = `%"${address.toLowerCase()}"%`;
+    // inbound: addressed to us (to/cc); outbound: sent from us.
+    const where =
+      direction === "in"
+        ? `(to_addresses LIKE ? OR cc_addresses LIKE ?)`
+        : `LOWER(from_address) = ?`;
+    const binds =
+      direction === "in" ? [like, like, limit] : [address.toLowerCase(), limit];
+    const r = await env.DB.prepare(
+      `SELECT ${cols} FROM emails WHERE direction = ? AND ${where}
+       ORDER BY received_at DESC LIMIT ?`,
+    )
+      .bind(direction, ...binds)
+      .all<StoredEmail>();
+    return r.results || [];
+  }
   const r = await env.DB.prepare(
-    `SELECT id, direction, from_address, to_addresses, cc_addresses, subject,
-            has_calendar, calendar_method, event_uid, read, received_at
-     FROM emails WHERE direction = ? ORDER BY received_at DESC LIMIT ?`,
+    `SELECT ${cols} FROM emails WHERE direction = ? ORDER BY received_at DESC LIMIT ?`,
   )
     .bind(direction, limit)
     .all<StoredEmail>();
