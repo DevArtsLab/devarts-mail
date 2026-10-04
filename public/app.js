@@ -144,6 +144,13 @@ async function loadBox(box) {
     list.appendChild(div);
   }
 }
+// Turn URLs in plain-text bodies into links that open in a new tab.
+const linkify = (s) =>
+  s.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" rel="noopener">$1</a>',
+  );
+
 const joinAddrs = (j) => {
   try {
     return JSON.parse(j).join(", ");
@@ -189,8 +196,8 @@ async function openEmail(id, box) {
     </div>
     ${
       email.body_html
-        ? `<iframe sandbox="" srcdoc="${esc(email.body_html)}"></iframe>`
-        : `<pre>${esc(email.body_text || "(empty)")}</pre>`
+        ? `<iframe sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="<base target='_blank'>${esc(email.body_html)}"></iframe>`
+        : `<pre>${linkify(esc(email.body_text || "(empty)"))}</pre>`
     }
   `;
   detail.querySelectorAll("[data-rsvp]").forEach((b) =>

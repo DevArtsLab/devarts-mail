@@ -388,6 +388,9 @@ main {
   font-family: var(--font);
   font-size: 14px;
 }
+.detail a {
+  color: #a78db1;
+}
 .detail .actions {
   display: flex;
   gap: 8px;
