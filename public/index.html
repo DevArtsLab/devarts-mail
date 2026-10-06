@@ -138,6 +138,17 @@
       </form>
     </dialog>
 
+    <!-- ==================== DAY SHEET (mobile) ==================== -->
+    <div id="day-backdrop" class="day-backdrop hidden"></div>
+    <div id="day-sheet" class="day-sheet hidden">
+      <div class="ds-head">
+        <h3 id="ds-title"></h3>
+        <button type="button" class="x" id="ds-close">&times;</button>
+      </div>
+      <div id="ds-events"></div>
+      <button id="ds-add" class="btn primary block">+ New event</button>
+    </div>
+
     <div id="toasts"></div>
     <script type="module" src="/app.js"></script>
   </body>

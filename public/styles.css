@@ -60,6 +60,17 @@ textarea {
     border-color 0.15s,
     box-shadow 0.15s;
 }
+select {
+  padding-right: 34px;
+  text-overflow: ellipsis;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238b91a3' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
+}
 input:focus,
 select:focus,
 textarea:focus {
@@ -131,6 +142,7 @@ textarea:focus {
 /* ---------- login ---------- */
 .login {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   background:
@@ -139,7 +151,7 @@ textarea:focus {
     var(--bg);
 }
 .login-card {
-  width: 340px;
+  width: min(340px, 92vw);
   padding: 36px 32px;
   text-align: center;
   background: var(--panel);
@@ -174,6 +186,7 @@ textarea:focus {
   display: grid;
   grid-template-columns: 232px 1fr;
   height: 100vh;
+  height: 100dvh;
 }
 .sidebar {
   background: var(--panel);
@@ -204,7 +217,9 @@ textarea:focus {
 .identity-picker {
   font-size: 12px;
   padding: 7px 10px;
-  background: var(--panel-2);
+  padding-right: 30px;
+  background-color: var(--panel-2);
+  background-position: right 10px center;
 }
 .sidebar nav {
   display: flex;
@@ -272,6 +287,7 @@ main {
 }
 .panel {
   height: calc(100vh - 36px);
+  height: calc(100dvh - 36px);
 }
 
 /* ---------- mail list ---------- */
@@ -288,10 +304,34 @@ main {
   background: var(--panel);
 }
 .list .item {
+  display: flex;
+  gap: 11px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background 0.1s;
+}
+.list .item .item-body {
+  flex: 1;
+  min-width: 0;
+}
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #f2eef5;
+  margin-top: 1px;
+}
+.avatar.sm {
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+  margin-top: 0;
 }
 .list .item:last-child {
   border-bottom: none;
@@ -313,6 +353,32 @@ main {
   display: flex;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+.list .from .addr {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list .item.unread .from::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.list .prev {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 1px;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .list .subj {
   white-space: nowrap;
@@ -370,6 +436,22 @@ main {
   border-bottom: 1px solid var(--border);
   margin-bottom: 14px;
 }
+.detail .head-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.detail .from-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.detail .back {
+  display: none;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
 .detail .head h2 {
   margin: 0 0 4px;
   font-size: 18px;
@@ -395,11 +477,13 @@ main {
   display: flex;
   gap: 8px;
   margin-top: 10px;
+  flex-wrap: wrap;
 }
 .rsvp-bar {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
   margin-top: 12px;
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -532,7 +616,10 @@ dialog::backdrop {
   backdrop-filter: blur(3px);
 }
 .modal-card {
-  width: 460px;
+  width: min(460px, 92vw);
+  max-height: 88vh;
+  max-height: 88dvh;
+  overflow-y: auto;
   padding: 22px;
   display: flex;
   flex-direction: column;
@@ -563,7 +650,8 @@ dialog::backdrop {
   font-size: 16px;
   font-weight: 700;
 }
-.modal-head .x {
+.modal-head .x,
+.ds-head .x {
   background: none;
   border: none;
   color: var(--muted);
@@ -581,6 +669,13 @@ dialog::backdrop {
   display: flex;
   gap: 10px;
 }
+.modal-card .row label {
+  min-width: 0;
+}
+input[type="datetime-local"] {
+  min-width: 0;
+  color-scheme: dark;
+}
 .modal-card label {
   display: flex;
   flex-direction: column;
@@ -597,6 +692,106 @@ dialog::backdrop {
 }
 .modal-card label.check input {
   width: auto;
+}
+
+/* ---------- day sheet (mobile calendar) ---------- */
+.day-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 5, 8, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 50;
+}
+.day-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 51;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  max-height: 62vh;
+  max-height: 62dvh;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+  animation: sheet-up 0.2s ease;
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+}
+.ds-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.ds-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+.ds-evt {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 12px;
+  margin-bottom: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.ds-evt .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+  background: var(--accent);
+}
+.ds-evt.accepted .dot,
+.ds-evt.own .dot {
+  background: var(--ok);
+}
+.ds-evt.declined .dot {
+  background: var(--danger);
+}
+.ds-evt.tentative .dot {
+  background: var(--warn);
+}
+.ds-evt.cancelled .dot {
+  background: var(--muted);
+}
+.ds-evt.cancelled .t {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+.ds-evt-body {
+  min-width: 0;
+}
+.ds-evt .t {
+  font-weight: 600;
+  font-size: 14px;
+}
+.ds-evt .m {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.day-sheet #ds-add {
+  margin-top: 4px;
+}
+@media (min-width: 861px) {
+  .day-sheet,
+  .day-backdrop {
+    display: none !important;
+  }
 }
 
 /* ---------- toasts ---------- */
@@ -642,9 +837,22 @@ dialog::backdrop {
 }
 
 /* ---------- responsive ---------- */
+
+/* Tablet / narrow desktop: slim the list column before collapsing. */
+@media (max-width: 1100px) {
+  .split {
+    grid-template-columns: minmax(240px, 320px) 1fr;
+  }
+}
+
+/* Small tablet / large phone: icon rail + list/detail swap. */
 @media (max-width: 860px) {
   .app {
-    grid-template-columns: 64px 1fr;
+    grid-template-columns: 56px 1fr;
+  }
+  .sidebar {
+    padding: 14px 8px;
+    gap: 10px;
   }
   .sidebar .brand,
   .sidebar .me,
@@ -654,11 +862,150 @@ dialog::backdrop {
   }
   .nav-item {
     justify-content: center;
+    padding: 9px;
+    font-size: 0;
+    gap: 0;
   }
+  .nav-item .ico {
+    font-size: 15px;
+    width: auto;
+  }
+  #compose-open,
+  #logout {
+    font-size: 0;
+    padding: 9px 0;
+    justify-content: center;
+  }
+  #compose-open::before {
+    content: "+";
+    font-size: 17px;
+  }
+  #logout::before {
+    content: "Out";
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+
+  main {
+    padding: 12px;
+  }
+  .panel {
+    height: calc(100vh - 24px);
+    height: calc(100dvh - 24px);
+  }
+
+  /* List <-> detail swap: detail overlays the list once opened. */
   .split {
     grid-template-columns: 1fr;
   }
-  .detail {
+  .split:not(.open) .detail {
     display: none;
+  }
+  .split.open .list {
+    display: none;
+  }
+  .split.open .detail {
+    display: block;
+    min-height: 0;
+  }
+  .detail {
+    padding: 16px;
+  }
+  .detail .back {
+    display: inline-flex;
+  }
+  .detail iframe {
+    min-height: 50vh;
+    min-height: 50dvh;
+  }
+
+  /* Calendar compaction */
+  .cal-header {
+    flex-wrap: wrap;
+  }
+  .cal-header h2 {
+    min-width: 0;
+    font-size: 17px;
+  }
+  .cal-grid {
+    gap: 4px;
+  }
+  .cal-grid .day {
+    padding: 4px;
+    font-size: 11px;
+  }
+  .cal-grid .dow {
+    font-size: 10px;
+    padding: 2px;
+  }
+  .cal-grid .evt {
+    padding: 1px 5px;
+    font-size: 10px;
+  }
+}
+
+/* Phone */
+@media (max-width: 480px) {
+  /* 16px inputs prevent iOS auto-zoom on focus. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  .btn {
+    font-size: 12px;
+  }
+  main {
+    padding: 10px;
+  }
+  .panel {
+    height: calc(100vh - 20px);
+    height: calc(100dvh - 20px);
+  }
+  .list .item {
+    padding: 10px 12px;
+  }
+  .list .prev {
+    line-clamp: 1;
+    -webkit-line-clamp: 1;
+  }
+  .detail {
+    padding: 14px;
+  }
+  .detail .head h2 {
+    font-size: 16px;
+  }
+  /* Event chips become colored bars — tap the day/event to see details. */
+  .cal-grid .evt {
+    font-size: 0;
+    height: 5px;
+    padding: 0;
+    margin-top: 4px;
+    border-left: none;
+    border-radius: 3px;
+  }
+  .cal-grid .evt.invite {
+    background: var(--accent);
+  }
+  .cal-grid .evt.own,
+  .cal-grid .evt.accepted {
+    background: var(--ok);
+  }
+  .cal-grid .evt.declined {
+    background: var(--danger);
+  }
+  .cal-grid .evt.tentative {
+    background: var(--warn);
+  }
+  .modal-card .row {
+    flex-direction: column;
+  }
+  #toasts {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+  .toast {
+    max-width: none;
   }
 }

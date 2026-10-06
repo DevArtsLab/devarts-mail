@@ -71,4 +71,6 @@ export interface StoredEmail {
   event_uid: string | null;
   read: number;
   received_at: number;
+  /** List view only: first chars of body_text (not present on getEmail). */
+  snippet?: string;
 }

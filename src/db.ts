@@ -59,7 +59,8 @@ export async function listEmails(
   limit = 100,
 ): Promise<StoredEmail[]> {
   const cols = `id, direction, from_address, to_addresses, cc_addresses, subject,
-            has_calendar, calendar_method, event_uid, read, received_at`;
+            has_calendar, calendar_method, event_uid, read, received_at,
+            substr(COALESCE(body_text, ''), 1, 200) AS snippet`;
   if (address) {
     const like = `%"${address.toLowerCase()}"%`;
     // inbound: addressed to us (to/cc); outbound: sent from us.

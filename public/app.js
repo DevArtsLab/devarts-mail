@@ -21,8 +21,33 @@ const esc = (s) =>
     /[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
   );
-const fmtDate = (ms) =>
+/** Compact list timestamp: time today, "Yesterday", short date otherwise. */
+const fmtDate = (ms) => {
+  const d = new Date(ms),
+    now = new Date();
+  if (d.toDateString() === now.toDateString())
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return "Yesterday";
+  const opts = { month: "short", day: "numeric" };
+  if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString([], opts);
+};
+/** Full timestamp for detail views. */
+const fmtFull = (ms) =>
   new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
+/** Stable hue from an address -> consistent avatar color per sender. */
+const hueFor = (s) => {
+  let h = 0;
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+};
+const avatar = (addr) => {
+  const ch = (addr || "?").trim().charAt(0).toUpperCase();
+  return `<span class="avatar" style="background:hsl(${hueFor(addr)},32%,38%)">${esc(ch)}</span>`;
+};
 
 function toast(msg, kind = "ok") {
   const el = document.createElement("div");
@@ -79,6 +104,7 @@ function switchTab(name) {
   document
     .querySelectorAll(".nav-item")
     .forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".split.open").forEach((s) => s.classList.remove("open"));
   document.querySelectorAll(".panel").forEach((p) => p.classList.add("hidden"));
   $(`#tab-${name}`).classList.remove("hidden");
   if (name === "calendar") {
@@ -136,10 +162,15 @@ async function loadBox(box) {
             box === "in" ? ourRecipientOf(m) : m.from_address,
           )}</span>`
         : "";
+    const addrLabel = box === "in" ? m.from_address : joinAddrs(m.to_addresses);
     div.innerHTML = `
-      <div class="from">${esc(box === "in" ? m.from_address : joinAddrs(m.to_addresses))} ${badge} ${whoBadge}</div>
-      <div class="subj">${esc(m.subject) || "(no subject)"}</div>
-      <div class="meta"><span>${fmtDate(m.received_at)}</span></div>`;
+      ${avatar(addrLabel)}
+      <div class="item-body">
+        <div class="from"><span class="addr">${esc(addrLabel)}</span> ${badge} ${whoBadge}</div>
+        <div class="subj">${esc(m.subject) || "(no subject)"}</div>
+        ${m.snippet ? `<div class="prev">${esc(m.snippet)}</div>` : ""}
+        <div class="meta"><span>${fmtDate(m.received_at)}</span></div>
+      </div>`;
     div.onclick = () => openEmail(m.id, box);
     list.appendChild(div);
   }
@@ -174,9 +205,12 @@ async function openEmail(id, box) {
   detail.classList.remove("empty");
   detail.innerHTML = `
     <div class="head">
-      <h2>${esc(email.subject) || "(no subject)"}</h2>
-      <div class="sub">From <b>${esc(email.from_address)}</b> &rarr; ${esc(joinAddrs(email.to_addresses))}
-        &middot; ${fmtDate(email.received_at)}</div>
+      <div class="head-top">
+        <button class="btn ghost icon back" id="btn-back">&#8249;</button>
+        <h2>${esc(email.subject) || "(no subject)"}</h2>
+      </div>
+      <div class="sub from-line">${avatar(email.from_address)} From <b>${esc(email.from_address)}</b> &rarr; ${esc(joinAddrs(email.to_addresses))}
+        &middot; ${fmtFull(email.received_at)}</div>
       ${
         isInvite
           ? `
@@ -200,6 +234,10 @@ async function openEmail(id, box) {
         : `<pre>${linkify(esc(email.body_text || "(empty)"))}</pre>`
     }
   `;
+  // On narrow screens the detail pane swaps in over the list.
+  detail.closest(".split").classList.add("open");
+  detail.querySelector("#btn-back").onclick = () =>
+    detail.closest(".split").classList.remove("open");
   detail.querySelectorAll("[data-rsvp]").forEach((b) =>
     b.addEventListener("click", async () => {
       b.disabled = true;
@@ -246,6 +284,7 @@ async function openEmail(id, box) {
     await api(`/api/emails/${id}`, { method: "DELETE" });
     detail.innerHTML = "Select a message";
     detail.classList.add("empty");
+    detail.closest(".split").classList.remove("open");
     toast("Deleted");
     loadBox(box);
   };
@@ -344,6 +383,11 @@ function renderCalendar() {
         })
         .join("");
     div.onclick = (ev) => {
+      // Narrow screens: tap a day -> bottom sheet listing its events.
+      if (window.matchMedia("(max-width: 860px)").matches) {
+        openDaySheet(date, evts);
+        return;
+      }
       const uid = ev.target.closest(".evt")?.dataset.uid;
       if (uid) openEventModal(state.events.find((x) => x.uid === uid));
       else openEventModal(null, date);
@@ -364,6 +408,61 @@ $("#cal-today").onclick = () => {
   renderCalendar();
 };
 $("#cal-new").onclick = () => openEventModal(null, new Date());
+
+// ---- day sheet (mobile): readable list of a day's events ----
+const sheetEl = $("#day-sheet"),
+  sheetBg = $("#day-backdrop");
+const closeDaySheet = () => {
+  sheetEl.classList.add("hidden");
+  sheetBg.classList.add("hidden");
+};
+sheetBg.onclick = closeDaySheet;
+$("#ds-close").onclick = closeDaySheet;
+
+function openDaySheet(date, evts) {
+  $("#ds-title").textContent = date.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const wrap = $("#ds-events");
+  wrap.innerHTML = evts.length
+    ? ""
+    : `<div class="sub" style="padding:8px 0">No events</div>`;
+  for (const e of evts) {
+    const cls =
+      e.status === "CANCELLED"
+        ? "cancelled"
+        : e.myPartstat === "ACCEPTED" || e.isOwn
+          ? "accepted"
+          : e.myPartstat === "DECLINED"
+            ? "declined"
+            : e.myPartstat === "TENTATIVE"
+              ? "tentative"
+              : "invite";
+    const time = e.allDay
+      ? "All day"
+      : `${new Date(e.dtstart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} – ${new Date(e.dtend).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+    const item = document.createElement("div");
+    item.className = `ds-evt ${cls}`;
+    item.innerHTML = `<span class="dot"></span>
+      <div class="ds-evt-body">
+        <div class="t">${esc(e.summary) || "(no title)"}</div>
+        <div class="m">${time}${e.location ? " · " + esc(e.location) : ""}${e.myPartstat ? " · " + e.myPartstat.toLowerCase() : ""}</div>
+      </div>`;
+    item.onclick = () => {
+      closeDaySheet();
+      openEventModal(e);
+    };
+    wrap.appendChild(item);
+  }
+  $("#ds-add").onclick = () => {
+    closeDaySheet();
+    openEventModal(null, date);
+  };
+  sheetEl.classList.remove("hidden");
+  sheetBg.classList.remove("hidden");
+}
 
 const toLocalInput = (ms) => {
   const d = new Date(ms),
@@ -438,7 +537,7 @@ function openEventModal(ev, date) {
         renderCalendar();
       }),
     );
-    $("#event-form").insertBefore(row, $(".modal-foot", evDlg));
+    $("#event-form").insertBefore(row, evDlg.querySelector(".modal-foot"));
   }
   evDlg.showModal();
 }
@@ -516,6 +615,7 @@ async function boot() {
     state.identity = idSel.value;
     state.selectedId = null;
     showMe();
+    document.querySelectorAll(".split.open").forEach((s) => s.classList.remove("open"));
     loadBox("in");
     loadBox("out");
   };
