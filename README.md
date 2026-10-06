@@ -68,11 +68,12 @@ Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, c
 | `INVITE_REMINDER_MINUTES` | `"30"`                | Reminder email before events (`0` = off) |
 | `SESSION_TTL_HOURS`       | `"168"`               | UI session length                        |
 
-| Secret             | Meaning                                                                                                                                                              |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UI_PASSWORD`      | Web UI login password                                                                                                                                                |
-| `SESSION_SECRET`   | HMAC key for session cookies                                                                                                                                         |
-| `EXTRA_IDENTITIES` | Extra send/receive addresses: `alias@domain=Name;alias2@domain` — kept secret so your addresses stay out of this repo. Each gets a routing rule via `npm run setup`. |
+| Secret             | Meaning                                                                                                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UI_PASSWORD`      | Web UI login password                                                                                                                                                                 |
+| `SESSION_SECRET`   | HMAC key for session cookies                                                                                                                                                          |
+| `EXTRA_IDENTITIES` | Extra send/receive addresses: `alias@domain=Name;alias2@domain` — kept secret so your addresses stay out of this repo. Each gets a routing rule via `npm run setup`.                  |
+| `GCAL_FORWARD_TO`  | Personal Gmail that gets read-only `METHOD:PUBLISH` copies of incoming invites/cancels — Gmail shows "Add to calendar" with no RSVP path and the address is never sent to organizers. |
 
 Secrets live in `.dev.vars` locally / `wrangler secret` in prod — never committed.
 

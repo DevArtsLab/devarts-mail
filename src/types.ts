@@ -18,6 +18,8 @@ export interface Env {
   // secrets (.dev.vars / wrangler secret)
   UI_PASSWORD: string;
   SESSION_SECRET: string;
+  /** Personal Gmail that receives read-only PUBLISH copies of invites. */
+  GCAL_FORWARD_TO?: string;
 }
 
 export type RsvpStatus = "ACCEPTED" | "DECLINED" | "TENTATIVE";

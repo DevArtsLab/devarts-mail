@@ -13,3 +13,8 @@ SESSION_SECRET=change-me-long-random-string
 # Format: semicolon-separated "address=Display Name" pairs (name optional).
 # Each address gets an Email Routing rule -> the worker via scripts/setup.mjs.
 # EXTRA_IDENTITIES=alias@yourdomain.com=Alias Name;alias2@yourdomain.com
+
+# Personal Gmail that receives read-only copies of calendar invites
+# (METHOD:PUBLISH — Gmail shows "Add to calendar", no RSVP is possible
+# from Gmail, and this address is never exposed to organizers).
+# GCAL_FORWARD_TO=you@gmail.com

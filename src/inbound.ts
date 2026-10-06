@@ -2,7 +2,7 @@
 
 import type { Env } from "./types";
 import { parseInbound, sendMail } from "./mail";
-import { parseIcs, buildReplyIcs } from "./ical";
+import { parseIcs, buildReplyIcs, buildExportIcs } from "./ical";
 import { identityForEmail, primaryIdentity } from "./identities";
 import {
   insertEmail,
@@ -80,9 +80,74 @@ export async function handleInbound(
 
   if (eventUid) await linkEventSource(env, eventUid, emailId);
 
+  // Mirror invites/cancels to the personal Gmail calendar. Sent as
+  // METHOD:PUBLISH so Gmail shows "Add to calendar" but exposes no RSVP
+  // path back to the organizer, and never leaks the Gmail address.
+  if ((method === "REQUEST" || method === "CANCEL") && eventUid) {
+    ctx.waitUntil(forwardEventToGcal(env, eventUid, method));
+  }
+
   // Auto-accept invites when enabled and it's a fresh invite.
   if (needsReply && env.AUTO_ACCEPT_INVITES === "true") {
     ctx.waitUntil(respondToInvite(env, needsReply.uid, "ACCEPTED", emailId));
+  }
+}
+
+/**
+ * Send a read-only copy of an event to the personal Gmail in
+ * GCAL_FORWARD_TO. PUBLISH semantics mean no organizer is notified and
+ * the recipient address appears nowhere in the invite — RSVPs still
+ * happen in this UI as the domain identity.
+ */
+async function forwardEventToGcal(
+  env: Env,
+  uid: string,
+  method: string,
+): Promise<void> {
+  const to = env.GCAL_FORWARD_TO?.trim();
+  if (!to) return;
+  const ev = await getEvent(env, uid);
+  if (!ev) return;
+
+  const identity = primaryIdentity(env);
+  const cancelled = ev.status === "CANCELLED" || method === "CANCEL";
+  const ics = buildExportIcs([ev], env.CALENDAR_NAME);
+  const when = ev.allDay
+    ? new Date(ev.dtstart).toISOString().slice(0, 10)
+    : `${new Date(ev.dtstart).toUTCString()} to ${new Date(ev.dtend).toUTCString()}`;
+  const subject = `${cancelled ? "Cancelled" : "Event"}: ${ev.summary}`;
+  const text = [
+    ev.summary,
+    `When: ${when}`,
+    ev.location ? `Where: ${ev.location}` : "",
+    ev.organizerEmail ? `Organizer: ${ev.organizerName || ev.organizerEmail}` : "",
+    "",
+    `Read-only copy. RSVP at https://mail.${env.MAIL_DOMAIN} as ${identity.address}.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  try {
+    const messageId = await sendMail(env, {
+      from: identity,
+      to,
+      subject,
+      text,
+      ics: { data: ics, method: "PUBLISH", filename: "event.ics" },
+    });
+    await insertEmail(env, {
+      direction: "out",
+      from: identity.address,
+      to: [to],
+      subject,
+      text,
+      messageId,
+      hasCalendar: true,
+      calendarMethod: "PUBLISH",
+      eventUid: uid,
+    });
+  } catch (e) {
+    console.error("forwardEventToGcal failed:", e);
   }
 }
 
