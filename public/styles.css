@@ -610,6 +610,7 @@ dialog {
   border: none;
   padding: 0;
   max-width: 92vw;
+  color: var(--text);
 }
 dialog::backdrop {
   background: rgba(4, 5, 8, 0.65);
