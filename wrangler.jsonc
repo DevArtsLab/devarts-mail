@@ -5,13 +5,13 @@
  * Single source of truth for the whole ecosystem: compute, storage, bindings,
  * triggers, variables, and environment overrides.
  *
- * Secrets are NOT committed: put them in `.dev.vars` for `npm run dev`,
+ * Secrets are NOT committed: put them in `.dev.vars` for `pnpm dev`,
  * or set them with `wrangler secret put <NAME>` for production.
  * See `.dev.vars.example` for the full list of secrets.
  * ============================================================================
  */
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
   "name": "devarts-mail",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-30",
@@ -64,7 +64,7 @@
     {
       "binding": "DB",
       "database_name": "devarts-mail",
-      // Filled in by `npm run setup` (or `wrangler d1 create devarts-mail`)
+      // Filled in by `pnpm run setup` (or `wrangler d1 create devarts-mail`)
       "database_id": "fde20434-b33c-4674-ba01-e9b031200b55",
       "migrations_dir": "migrations",
     },

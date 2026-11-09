@@ -61,10 +61,38 @@ let ACCOUNT_ID = env("CLOUDFLARE_ACCOUNT_ID");
 
 // --- read vars out of the unified config -----------------------------------
 const raw = readFileSync(wranglerPath, "utf8");
-const jsonBody = raw.slice(raw.indexOf("{"));
-const cfg = JSON.parse(
-  jsonBody.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, ""),
-);
+
+// JSONC -> JSON: strip // and /* */ comments (string-aware) and trailing commas.
+function jsoncToJson(src) {
+  let out = "";
+  let inStr = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inStr) {
+      out += c;
+      if (c === "\\") out += src[++i] ?? "";
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+      out += c;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "/") {
+      while (i < src.length && src[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++;
+      i++;
+      continue;
+    }
+    out += c;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
+}
+const cfg = JSON.parse(jsoncToJson(raw));
 const vars = cfg.vars || {};
 const WORKER_NAME = cfg.name;
 const D1_NAME = vars.D1_DATABASE_NAME || "devarts-mail";
@@ -184,7 +212,15 @@ if (API_TOKEN) {
   } catch {}
   await cf("PUT", `/zones/${zoneId}/email/routing`, { enabled: true }).catch(() => {});
 
-  const rules = await cf("GET", `/zones/${zoneId}/email/routing/rules`);
+  const rules = [];
+  for (let page = 1; ; page++) {
+    const batch = await cf(
+      "GET",
+      `/zones/${zoneId}/email/routing/rules?per_page=50&page=${page}`,
+    );
+    rules.push(...batch);
+    if (batch.length < 50) break;
+  }
   for (const addr of ADDRESSES) {
     const existing = rules.find(
       (r) => r.matchers?.[0]?.value?.toLowerCase() === addr.toLowerCase(),
