@@ -4,6 +4,7 @@
   "private": true,
   "description": "DevArts Lab mail + calendar on Cloudflare Workers: inbound email, outbound sending, calendar invites (RSVP), independent calendar.",
   "type": "module",
+  "packageManager": "pnpm@12.18.0",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -15,18 +16,13 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "mimetext": "^3.0.27",
-    "postal-mime": "^2.6.0"
+    "mimetext": "^3.0.28",
+    "postal-mime": "^4.2.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260930.2",
-    "typescript": "^5.9.2",
-    "vitest": "^5.0.3",
-    "wrangler": "^4.40.0"
-  },
-  "allowScripts": {
-    "esbuild@0.28.2": true,
-    "esbuild@0.28.1": true,
-    "workerd@1.20260930.2": true
+    "@cloudflare/workers-types": "^5.20261109.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.158.0"
   }
 }

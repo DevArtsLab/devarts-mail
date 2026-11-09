@@ -3,7 +3,6 @@
 # 📮 devarts-mail
 
 **Self-hosted email + calendar — entirely on Cloudflare.**
-No Google. No iCloud. No third-party mail service.
 
 [![Deploy](https://github.com/DevArtsLab/devarts-mail/actions/workflows/deploy.yml/badge.svg)](https://github.com/DevArtsLab/devarts-mail/actions/workflows/deploy.yml)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F6821F?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
@@ -50,7 +49,7 @@ cd devarts-mail
 
 That's it. The installer:
 
-1. `npm install`
+1. `pnpm install`
 2. generates `.dev.vars` with strong random secrets (and **prints your UI password**)
 3. runs `wrangler login` if needed (browser OAuth — that's the only interaction)
 4. provisions **D1**, runs **migrations**, uploads **secrets**, **deploys**, and creates the **Email Routing rule** `you@domain → worker`
@@ -72,10 +71,10 @@ Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, c
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `UI_PASSWORD`      | Web UI login password                                                                                                                                                                 |
 | `SESSION_SECRET`   | HMAC key for session cookies                                                                                                                                                          |
-| `EXTRA_IDENTITIES` | Extra send/receive addresses: `alias@domain=Name;alias2@domain` — kept secret so your addresses stay out of this repo. Each gets a routing rule via `npm run setup`.                  |
+| `EXTRA_IDENTITIES` | Extra send/receive addresses: `alias@domain=Name;alias2@domain` — kept secret so your addresses stay out of this repo. Each gets a routing rule via `pnpm run setup`.                 |
 | `GCAL_FORWARD_TO`  | Personal Gmail that gets read-only `METHOD:PUBLISH` copies of incoming invites/cancels — Gmail shows "Add to calendar" with no RSVP path and the address is never sent to organizers. |
 
-Secrets live in `.dev.vars` locally / `wrangler secret` in prod — never committed.
+Secrets live in `.dev.vars` locally / `wrangler secret` in prod.
 
 ## 📁 Layout
 
@@ -99,12 +98,12 @@ Secrets live in `.dev.vars` locally / `wrangler secret` in prod — never commit
 ## 🧪 Commands
 
 ```bash
-npm run dev              # local dev server
-npm test                 # unit tests
-npm run typecheck        # TypeScript check
-npm run deploy           # deploy
-npm run setup            # full re-provisioning (idempotent)
-npm run migrate:remote   # apply D1 migrations
+pnpm dev                 # local dev server
+pnpm test                # unit tests
+pnpm typecheck           # TypeScript check
+pnpm deploy              # deploy
+pnpm run setup           # full re-provisioning (idempotent)
+pnpm run migrate:remote  # apply D1 migrations
 ```
 
 Push to `main` auto-deploys via GitHub Actions (set repo secrets

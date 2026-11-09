@@ -2,7 +2,7 @@
 /**
  * devarts-mail provisioning: one command, idempotent.
  *
- *   npm run setup
+ *   pnpm run setup
  *
  * What it does:
  *   1. Creates the D1 database (if needed) and writes the database_id
@@ -118,7 +118,7 @@ let dbId = cfg.d1_databases?.[0]?.database_id;
 if (!dbId || dbId === "REPLACE_WITH_D1_DATABASE_ID") {
   console.log(`-> creating D1 database "${D1_NAME}"`);
   try {
-    const out = run(`npx wrangler d1 create ${D1_NAME}`);
+    const out = run(`pnpm exec wrangler d1 create ${D1_NAME}`);
     const m =
       out.match(/database_id\s*[:=]\s*"?([0-9a-f-]{36})"?/i) ||
       out.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
@@ -126,10 +126,10 @@ if (!dbId || dbId === "REPLACE_WITH_D1_DATABASE_ID") {
     dbId = m[1];
   } catch (e) {
     // DB may already exist — look it up
-    const out = run(`npx wrangler d1 list`);
+    const out = run(`pnpm exec wrangler d1 list`);
     const m =
       out.match(new RegExp(`([0-9a-f-]{36})[^\\n]*${D1_NAME}`)) ||
-      run(`npx wrangler d1 info ${D1_NAME}`).match(/([0-9a-f-]{36})/);
+      run(`pnpm exec wrangler d1 info ${D1_NAME}`).match(/([0-9a-f-]{36})/);
     if (!m) throw e;
     dbId = m[1];
   }
@@ -144,7 +144,7 @@ if (!dbId || dbId === "REPLACE_WITH_D1_DATABASE_ID") {
 
 // --- 2. migrations -----------------------------------------------------------
 console.log("-> applying migrations (remote)");
-run(`npx wrangler d1 migrations apply ${D1_NAME} --remote`);
+run(`pnpm exec wrangler d1 migrations apply ${D1_NAME} --remote`);
 
 // --- 3. secrets ----------------------------------------------------------------
 const SECRET_KEYS = ["UI_PASSWORD", "SESSION_SECRET", "EXTRA_IDENTITIES"];
@@ -154,17 +154,21 @@ for (const key of SECRET_KEYS) {
     console.log(`   ! ${key} not set — add to .dev.vars or env`);
     continue;
   }
-  execFileSync("npx", ["wrangler", "secret", "put", key, "--name", WORKER_NAME], {
-    cwd: root,
-    input: val,
-    stdio: ["pipe", "inherit", "inherit"],
-  });
+  execFileSync(
+    "pnpm",
+    ["exec", "wrangler", "secret", "put", key, "--name", WORKER_NAME],
+    {
+      cwd: root,
+      input: val,
+      stdio: ["pipe", "inherit", "inherit"],
+    },
+  );
   console.log(`   secret ${key} set`);
 }
 
 // --- 4. deploy -------------------------------------------------------------------
 console.log("-> deploying worker");
-run(`npx wrangler deploy`);
+run(`pnpm exec wrangler deploy`);
 
 // --- 5. email routing rule --------------------------------------------------------
 if (API_TOKEN) {

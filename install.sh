@@ -4,7 +4,7 @@
 #
 #   git clone <repo> && cd devarts-mail && ./install.sh
 #
-# Does: npm install -> .dev.vars (generated secrets) ->
+# Does: pnpm install -> .dev.vars (generated secrets) ->
 #       wrangler login (if needed) -> full setup (D1, migrations,
 #       secrets, deploy, email routing rule).
 # ============================================================
@@ -19,12 +19,12 @@ bold "== devarts-mail installer =="
 
 # --- 0. prerequisites -------------------------------------------------------
 command -v node >/dev/null || { echo "node is required (https://nodejs.org)"; exit 1; }
-command -v npm  >/dev/null || { echo "npm is required"; exit 1; }
-green "node $(node -v) / npm $(npm -v)"
+command -v pnpm >/dev/null || { echo "pnpm is required (https://pnpm.io)"; exit 1; }
+green "node $(node -v) / pnpm $(pnpm -v)"
 
 # --- 1. deps ----------------------------------------------------------------
-bold "-> npm install"
-npm install
+bold "-> pnpm install"
+pnpm install
 
 # --- 2. .dev.vars (local secrets; generated if missing) ----------------------
 if [ ! -f .dev.vars ]; then
@@ -44,16 +44,16 @@ else
 fi
 
 # --- 3. Cloudflare auth ------------------------------------------------------
-if npx wrangler whoami >/dev/null 2>&1 && ! npx wrangler whoami 2>&1 | grep -q "not authenticated"; then
+if pnpm exec wrangler whoami >/dev/null 2>&1 && ! pnpm exec wrangler whoami 2>&1 | grep -q "not authenticated"; then
   green "-> wrangler authenticated"
 else
   warn "-> launching wrangler login (a browser window will open)"
-  npx wrangler login
+  pnpm exec wrangler login
 fi
 
 # --- 4. provision + deploy ----------------------------------------------------
 bold "-> running setup (D1 + migrations + secrets + deploy + routing)"
-npm run setup
+pnpm run setup
 
 # --- 5. done ------------------------------------------------------------------
 bold ""
