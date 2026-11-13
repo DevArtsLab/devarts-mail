@@ -45,7 +45,7 @@
     // addresses in this repo. Set in .dev.vars / `wrangler secret put`:
     //   EXTRA_IDENTITIES="alias@domain=Display Name;alias2@domain=Name2"
     "CALENDAR_NAME": "DevArts Lab",
-    "CALENDAR_TZ": "America/Los_Angeles",
+    "CALENDAR_TZ": "America/New_York",
 
     // Behavior
     "AUTO_ACCEPT_INVITES": "false", // "true" to auto-reply ACCEPTED to invites
