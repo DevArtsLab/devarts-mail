@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   externalAddresses,
   buildEmailNote,
   buildMeetingBody,
+  syncPendingDeletes,
   FREEMAIL_DOMAINS,
 } from "../src/attio";
 import type { Env, StoredEmail, CalEvent } from "../src/types";
@@ -143,6 +144,70 @@ describe("buildMeetingBody", () => {
     const b = buildMeetingBody(env, ev({ allDay: true, dtstart: start, dtend: start }));
     expect(b.start).toEqual({ date: "2026-11-15" });
     expect(b.end).toEqual({ date: "2026-11-16" });
+  });
+});
+
+describe("syncPendingDeletes", () => {
+  function mockEnv(queueRows: unknown[], runs: string[]) {
+    return {
+      ATTIO_SYNC_ENABLED: "true",
+      ATTIO_ACCESS_TOKEN: "tok",
+      DB: {
+        prepare: (sql: string) => ({
+          bind: (..._args: unknown[]) => ({
+            all: async () => ({
+              results: sql.includes("FROM attio_deletion_queue") ? queueRows : [],
+            }),
+            run: async () => {
+              runs.push(sql);
+              return { success: true };
+            },
+            first: async () => null,
+          }),
+        }),
+      },
+    } as unknown as Env;
+  }
+
+  it("clears a queued note deletion when Attio already deleted it (404)", async () => {
+    const runs: string[] = [];
+    const env = mockEnv(
+      [{ id: 1, kind: "note", remote_id: "note-1", attempts: 0 }],
+      runs,
+    );
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await syncPendingDeletes(env);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.attio.com/v2/notes/note-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(runs.some((s) => s.includes("DELETE FROM attio_deletion_queue"))).toBe(true);
+  });
+
+  it("keeps the queue row and defers when Attio rejects the delete", async () => {
+    const runs: string[] = [];
+    const env = mockEnv(
+      [{ id: 2, kind: "meeting", remote_id: "mtg-1", attempts: 0 }],
+      runs,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("boom", { status: 500 })),
+    );
+    try {
+      await syncPendingDeletes(env);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(runs.some((s) => s.includes("UPDATE attio_deletion_queue"))).toBe(true);
+    expect(runs.some((s) => s.includes("DELETE FROM attio_deletion_queue"))).toBe(
+      false,
+    );
   });
 });
 

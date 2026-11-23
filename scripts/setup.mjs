@@ -175,7 +175,13 @@ console.log("-> applying migrations (remote)");
 run(`pnpm exec wrangler d1 migrations apply ${D1_NAME} --remote`);
 
 // --- 3. secrets ----------------------------------------------------------------
-const SECRET_KEYS = ["UI_PASSWORD", "SESSION_SECRET", "EXTRA_IDENTITIES"];
+const SECRET_KEYS = [
+  "UI_PASSWORD",
+  "SESSION_SECRET",
+  "EXTRA_IDENTITIES",
+  "ATTIO_ACCESS_TOKEN",
+  "GCAL_FORWARD_TO",
+];
 for (const key of SECRET_KEYS) {
   const val = env(key);
   if (!val) {

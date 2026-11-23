@@ -105,7 +105,8 @@ export async function emailsPendingAttio(
   const r = await env.DB.prepare(
     `SELECT * FROM emails WHERE attio_synced_at IS NULL
      AND (attio_attempted_at IS NULL OR attio_attempted_at <= ?)
-     ORDER BY received_at ASC LIMIT ?`,
+     ORDER BY attio_attempted_at IS NOT NULL,
+              COALESCE(attio_attempted_at, received_at) ASC LIMIT ?`,
   )
     .bind(retryBefore, limit)
     .all<StoredEmail>();
@@ -325,7 +326,8 @@ export async function eventsPendingAttio(env: Env, limit: number, retryBefore: n
     `SELECT * FROM calendar_events
      WHERE (attio_synced_at IS NULL OR updated_at > attio_synced_at)
      AND (attio_attempted_at IS NULL OR attio_attempted_at <= ?)
-     ORDER BY updated_at ASC LIMIT ?`,
+     ORDER BY attio_attempted_at IS NOT NULL,
+              COALESCE(attio_attempted_at, updated_at) ASC LIMIT ?`,
   )
     .bind(retryBefore, limit)
     .all<EventRow>();
@@ -393,6 +395,18 @@ export async function pendingAttioDeletes(
 
 export async function removeAttioDelete(env: Env, id: number): Promise<void> {
   await env.DB.prepare(`DELETE FROM attio_deletion_queue WHERE id = ?`).bind(id).run();
+}
+
+export async function removeAttioDeleteRef(
+  env: Env,
+  kind: "note" | "meeting",
+  remoteId: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `DELETE FROM attio_deletion_queue WHERE kind = ? AND remote_id = ?`,
+  )
+    .bind(kind, remoteId)
+    .run();
 }
 
 export async function deferAttioDelete(
