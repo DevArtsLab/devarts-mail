@@ -13,11 +13,12 @@ export interface Env {
   CALENDAR_TZ: string;
   AUTO_ACCEPT_INVITES: string;
   INVITE_REMINDER_MINUTES: string;
-  SESSION_TTL_HOURS: string;
+  /** Cloudflare Access team domain (e.g. name.cloudflareaccess.com). */
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  /** Cloudflare Access application AUD tag; unset = local dev, no auth. */
+  CF_ACCESS_AUD?: string;
 
   // secrets (.dev.vars / wrangler secret)
-  UI_PASSWORD: string;
-  SESSION_SECRET: string;
   /** Personal Gmail that receives read-only PUBLISH copies of invites. */
   GCAL_FORWARD_TO?: string;
 }
