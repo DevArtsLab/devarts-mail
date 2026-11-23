@@ -234,7 +234,8 @@ export async function respondToInvite(
     console.error("respondToInvite send failed:", e);
   }
 
-  // Record our answer regardless — the calendar state is ours.
-  await setMyPartstat(env, uid, partstat);
+  // Record our answer regardless — the calendar state is ours. Store the
+  // answering identity too so multi-alias mailboxes RSVP correctly.
+  await setMyPartstat(env, uid, partstat, identity.address);
   return { sent, error };
 }

@@ -37,8 +37,9 @@ existing `*/10m` cron in `src/attio.ts`:
 - Attio-side manual edits (e.g. company on a person) are preserved:
   company is only set when empty, and meeting recreation migrates
   explicit linked records.
-- Deletes propagate both ways: local deletes remove Attio copies;
-  cancelled invites remove the Attio meeting.
+- Deletes propagate one way only: local deletes and cancelled invites
+  remove Attio copies. Deletions made inside Attio are not applied
+  back to the mailbox.
 - Costs: Attio API calls per cron run are capped by a subrequest budget
   to stay within Workers Free limits.
 - If the trial is not extended, the feature flag turns off and the

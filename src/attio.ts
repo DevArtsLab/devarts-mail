@@ -8,6 +8,8 @@
 import type { CalEvent, Env, StoredEmail } from "./types";
 import { listIdentities, primaryIdentity } from "./identities";
 import {
+  D1BudgetError,
+  d1CallsLeft,
   emailsPendingAttio,
   markEmailAttioAttempted,
   markEmailAttioSynced,
@@ -15,10 +17,9 @@ import {
   markEventAttioAttempted,
   saveEmailAttioNotes,
   setEventAttioSynced,
-  enqueueAttioDelete,
+  enqueueAttioDeletes,
   pendingAttioDeletes,
   removeAttioDelete,
-  removeAttioDeleteRef,
   deferAttioDelete,
 } from "./db";
 
@@ -42,6 +43,11 @@ const MAX_LOCATION_CHARS = 500;
 
 /** Thrown when the per-run Attio call budget is exhausted. */
 class BudgetExhaustedError extends Error {}
+
+/** True for either per-invocation budget error (no retry penalty). */
+function isBudgetError(e: unknown): boolean {
+  return e instanceof BudgetExhaustedError || e instanceof D1BudgetError;
+}
 
 /** Remaining Attio API calls for this cron run (undefined = unlimited). */
 interface AttioBudget {
@@ -84,9 +90,11 @@ export async function syncAttio(env: Env): Promise<void> {
   if (!attioEnabled(env)) return;
   const retryBefore = Date.now() - RETRY_DELAY_MS;
   const budget: AttioBudget = { remaining: SUBREQUEST_BUDGET };
-  await syncEmails(env, retryBefore, budget);
-  await syncEvents(env, retryBefore, budget);
+  // Deletes and meetings first: email backfill is unbounded and must not
+  // starve cleanup or calendar sync of the shared call budget.
   await syncPendingDeletes(env, budget);
+  await syncEvents(env, retryBefore, budget);
+  await syncEmails(env, retryBefore, budget);
 }
 
 /** Drain the queue of remote deletes that failed after local removal. */
@@ -96,13 +104,13 @@ export async function syncPendingDeletes(
 ): Promise<void> {
   const now = Date.now();
   for (const d of await pendingAttioDeletes(env, DELETE_BATCH, now)) {
-    if (budget && budget.remaining <= 0) break;
+    if ((budget && budget.remaining <= 0) || d1CallsLeft(env) < 1) break;
     const path = `/${d.kind === "note" ? "notes" : "meetings"}/${d.remote_id}`;
     try {
       await attioDelete(env, path, budget);
       await removeAttioDelete(env, d.id);
     } catch (e) {
-      if (e instanceof BudgetExhaustedError) break;
+      if (isBudgetError(e)) break;
       const attempts = d.attempts + 1;
       await deferAttioDelete(env, d.id, attempts, now + attempts * RETRY_DELAY_MS);
       console.error("attio pending delete failed:", d.remote_id, e);
@@ -110,44 +118,42 @@ export async function syncPendingDeletes(
   }
 }
 
-/** Remove the Attio notes created for an email (called on local delete). */
-export async function deleteAttioEmailNotes(env: Env, e: StoredEmail): Promise<void> {
-  if (!attioEnabled(env)) return;
-  for (const noteId of Object.values(parseNoteMap(e.attio_notes))) {
-    await deleteOrQueue(env, "note", noteId);
-  }
-}
-
-/** Remove the Attio meeting for an event (called on local delete). */
-export async function deleteAttioMeeting(
-  env: Env,
-  ev: { attioMeetingId?: string | null },
-): Promise<void> {
-  if (!attioEnabled(env) || !ev.attioMeetingId) return;
-  await deleteOrQueue(env, "meeting", ev.attioMeetingId);
+/** Attio note IDs recorded for an email (empty if never synced). */
+export function attioNoteIds(e: StoredEmail): string[] {
+  return Object.values(parseNoteMap(e.attio_notes));
 }
 
 /**
- * DELETE a remote object. The ID is queued BEFORE the attempt so a worker
- * crash mid-delete still leaves a retry path; on success the queue row
- * is removed again.
+ * Best-effort remote delete of an email's Attio notes. IDs are already
+ * queued by deleteEmailAndQueueAttioDeletes, so failures are left for
+ * the cron drain — no queue writes happen here.
  */
-async function deleteOrQueue(
+export async function deleteAttioEmailNotes(
   env: Env,
-  kind: "note" | "meeting",
-  remoteId: string,
+  e: StoredEmail,
   budget?: AttioBudget,
 ): Promise<void> {
-  const path = `/${kind === "note" ? "notes" : "meetings"}/${remoteId}`;
-  await enqueueAttioDelete(env, kind, remoteId).catch((e) =>
-    console.error("attio delete enqueue failed:", remoteId, e),
-  );
+  if (!attioEnabled(env)) return;
+  for (const noteId of attioNoteIds(e)) {
+    try {
+      await attioDelete(env, `/notes/${noteId}`, budget);
+    } catch (err) {
+      console.error("attio note delete failed:", noteId, err);
+    }
+  }
+}
+
+/** Best-effort remote delete of an event's Attio meeting (queued already). */
+export async function deleteAttioMeeting(
+  env: Env,
+  ev: { attioMeetingId?: string | null },
+  budget?: AttioBudget,
+): Promise<void> {
+  if (!attioEnabled(env) || !ev.attioMeetingId) return;
   try {
-    await attioDelete(env, path, budget);
-    await removeAttioDeleteRef(env, kind, remoteId);
+    await attioDelete(env, `/meetings/${ev.attioMeetingId}`, budget);
   } catch (err) {
-    console.error(`attio ${kind} delete failed:`, remoteId, err);
-    // Stays queued; syncPendingDeletes retries with backoff.
+    console.error("attio meeting delete failed:", ev.attioMeetingId, err);
   }
 }
 
@@ -175,7 +181,9 @@ async function syncEmails(
       }
       const { title, content } = buildEmailNote(env, email);
       for (const addr of pending.slice(0, MAX_PARTICIPANTS)) {
-        if (budget.remaining <= 0) break;
+        // Each note needs one D1 write (saveEmailAttioNotes); stop before
+        // creating a remote note we could not record.
+        if (budget.remaining <= 0 || d1CallsLeft(env) < 1) break;
         try {
           const personId = await upsertPerson(env, addr, budget);
           if (!personId) throw new Error("no record_id in person response");
@@ -199,7 +207,7 @@ async function syncEmails(
           noted[addr] = noteId;
           await saveEmailAttioNotes(env, email.id, noted);
         } catch (e) {
-          if (e instanceof BudgetExhaustedError) break;
+          if (isBudgetError(e)) break;
           // Stays unnoted and is retried on the next run; participants
           // that already succeeded are skipped, so no duplicates.
           failed = true;
@@ -213,7 +221,7 @@ async function syncEmails(
         await markEmailAttioAttempted(env, email.id);
       }
     } catch (e) {
-      if (e instanceof BudgetExhaustedError) break;
+      if (isBudgetError(e)) break;
       console.error("attio email sync failed:", email.id, e);
       await markEmailAttioAttempted(env, email.id).catch(() => {});
     }
@@ -230,7 +238,9 @@ async function syncEvents(
   budget: AttioBudget,
 ): Promise<void> {
   for (const ev of await eventsPendingAttio(env, EVENT_BATCH, retryBefore)) {
-    if (budget.remaining <= 0) break;
+    // Replacement needs 2 D1 writes (queue enqueue batch + synced save);
+    // stop before creating a remote meeting we could not record.
+    if (budget.remaining <= 0 || d1CallsLeft(env) < 2) break;
     try {
       if (ev.status === "CANCELLED") {
         if (ev.attioMeetingId) {
@@ -267,12 +277,21 @@ async function syncEvents(
         );
       }
       // Queue the old meeting BEFORE marking synced: if the worker dies
-      // here, the cron still deletes the stale meeting.
-      if (oldId) await enqueueAttioDelete(env, "meeting", oldId);
+      // here, the cron still deletes the stale meeting. One batch = one
+      // D1 query against the per-invocation limit.
+      if (oldId) {
+        await enqueueAttioDeletes(env, [{ kind: "meeting", remoteId: oldId }]);
+      }
       await setEventAttioSynced(env, ev.uid, meetingId);
-      if (oldId) await deleteOrQueue(env, "meeting", oldId, budget);
+      // Best-effort immediate delete; the queue row covers failures and
+      // is cleaned up by the cron drain (404 = success).
+      if (oldId) {
+        await attioDelete(env, `/meetings/${oldId}`, budget).catch((e) =>
+          console.error("attio old meeting delete failed:", oldId, e),
+        );
+      }
     } catch (e) {
-      if (e instanceof BudgetExhaustedError) break;
+      if (isBudgetError(e)) break;
       console.error("attio event sync failed:", ev.uid, e);
       await markEventAttioAttempted(env, ev.uid).catch(() => {});
     }
@@ -328,7 +347,7 @@ interface MeetingBody {
 
 export function buildMeetingBody(
   env: Env,
-  ev: CalEvent & { myPartstat?: string | null },
+  ev: CalEvent & { myPartstat?: string | null; myRsvpAddr?: string | null },
 ): MeetingBody {
   const tz = env.CALENDAR_TZ || "UTC";
   const iso = (ms: number) => new Date(ms).toISOString();
@@ -344,16 +363,21 @@ export function buildMeetingBody(
       status: "accepted",
     });
   }
+  const rsvpAddr = ev.myRsvpAddr?.toLowerCase();
   for (const a of ev.attendees) {
     if (!a.email || a.email === ev.organizerEmail) continue;
-    // Our own RSVP lives in my_partstat, not the ICS attendee PARTSTAT.
-    const isSelf = selfAddrs.has(a.email.toLowerCase());
+    // Our RSVP lives in my_partstat for the identity that answered
+    // (my_rsvp_addr); other mailbox identities keep their ICS status.
+    const addr = a.email.toLowerCase();
+    const isSelf = selfAddrs.has(addr);
+    const rsvpApplies = isSelf && !!ev.myPartstat && (!rsvpAddr || addr === rsvpAddr);
     participants.push({
       email_address: a.email,
       name: a.name || undefined,
       is_organizer: false,
-      status:
-        isSelf && ev.myPartstat ? mapPartstat(ev.myPartstat) : mapPartstat(a.partstat),
+      status: rsvpApplies
+        ? mapPartstat(ev.myPartstat ?? undefined)
+        : mapPartstat(a.partstat),
     });
   }
   // Attio requires at least one participant: personal events get us.

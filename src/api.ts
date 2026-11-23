@@ -13,8 +13,7 @@ import {
 } from "./auth";
 import { buildInviteIcs, buildCancelIcs, buildExportIcs, newUid } from "./ical";
 import { findIdentity, listIdentities, primaryIdentity } from "./identities";
-import { deleteAttioEmailNotes, deleteAttioMeeting } from "./attio";
-
+import { attioNoteIds, deleteAttioEmailNotes, deleteAttioMeeting } from "./attio";
 function json(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), {
     ...init,
@@ -83,8 +82,10 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
       return json({ email });
     }
     if (!action && method === "DELETE") {
+      // Queue remote note deletes + remove the row in one D1 batch, then
+      // best-effort delete in Attio; the cron drains anything left.
+      await db.deleteEmailAndQueueAttioDeletes(env, id, attioNoteIds(email));
       await deleteAttioEmailNotes(env, email);
-      await db.deleteEmail(env, id);
       return json({ ok: true });
     }
     if (action === "/read" && method === "POST") {
@@ -235,8 +236,8 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
       if (notify && existing.isOwn && existing.attendees.length) {
         await sendCancelEmails(env, existing);
       }
+      await db.deleteEventRowAndQueueAttioDelete(env, uid, existing.attioMeetingId);
       await deleteAttioMeeting(env, existing);
-      await db.deleteEventRow(env, uid);
       return json({ ok: true });
     }
   }

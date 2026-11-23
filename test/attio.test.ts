@@ -139,6 +139,28 @@ describe("buildMeetingBody", () => {
     expect(b.description).toContain("Location: Room 4");
   });
 
+  it("applies RSVP only to the identity that answered", () => {
+    const b = buildMeetingBody(
+      env,
+      ev({
+        attendees: [
+          { email: "amir@devartslab.com", partstat: "NEEDS-ACTION" },
+          { email: "sales@devartslab.com", partstat: "NEEDS-ACTION" },
+          { email: "bob@corp.io", partstat: "NEEDS-ACTION" },
+        ],
+        myPartstat: "DECLINED",
+        myRsvpAddr: "amir@devartslab.com",
+      } as Partial<CalEvent>),
+    );
+    const byEmail = Object.fromEntries(
+      b.participants.map((p) => [p.email_address, p.status]),
+    );
+    expect(byEmail["amir@devartslab.com"]).toBe("declined");
+    // The other mailbox identity keeps its original ICS status.
+    expect(byEmail["sales@devartslab.com"]).toBe("pending");
+    expect(byEmail["bob@corp.io"]).toBe("pending");
+  });
+
   it("uses exclusive date end for all-day events", () => {
     const start = Date.UTC(2026, 10, 15);
     const b = buildMeetingBody(env, ev({ allDay: true, dtstart: start, dtend: start }));

@@ -36,7 +36,17 @@ function loadDotfile(name) {
       .filter((l) => l && !l.startsWith("#") && l.includes("="))
       .map((l) => {
         const i = l.indexOf("=");
-        return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
+        let v = l.slice(i + 1).trim();
+        // dotenv allows quoted values; strip matching quotes so secrets
+        // are uploaded without the quote characters.
+        if (
+          v.length >= 2 &&
+          ((v.startsWith('"') && v.endsWith('"')) ||
+            (v.startsWith("'") && v.endsWith("'")))
+        ) {
+          v = v.slice(1, -1);
+        }
+        return [l.slice(0, i).trim(), v];
       }),
   );
 }
