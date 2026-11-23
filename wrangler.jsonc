@@ -52,6 +52,17 @@
     "INVITE_REMINDER_MINUTES": "30", // reminder email before events (0=off)
     "SESSION_TTL_HOURS": "168", // UI session length (7 days)
 
+    // Attio CRM sync (optional): emails -> notes on person records,
+    // calendar events -> meetings. Attio's own sync only covers
+    // Google/Microsoft mailboxes, this covers everything else.
+    // Requires the ATTIO_ACCESS_TOKEN secret (Attio -> Settings ->
+    // Developers -> Access tokens) with record/note/meeting read-write.
+    "ATTIO_SYNC_ENABLED": "true",
+    // ATTIO_IGNORE_ADDRESSES: comma-separated extra "self" addresses
+    // excluded from sync (e.g. the Gmail that receives PUBLISH copies
+    // of invites). Personal address lives in the workspace store; set
+    // via `wrangler secret put ATTIO_IGNORE_ADDRESSES`.
+
     // Provisioning (used by scripts/setup.mjs)
     "D1_DATABASE_NAME": "devarts-mail",
     "ROUTE_CONTACT_TO_WORKER": "false", // keep contact@ forward rule intact

@@ -96,6 +96,26 @@ export async function markEmailRead(env: Env, id: string): Promise<void> {
   await env.DB.prepare(`UPDATE emails SET read = 1 WHERE id = ?`).bind(id).run();
 }
 
+/** Oldest-first emails not yet mirrored to Attio. */
+export async function emailsPendingAttio(
+  env: Env,
+  limit: number,
+): Promise<StoredEmail[]> {
+  const r = await env.DB.prepare(
+    `SELECT * FROM emails WHERE attio_synced_at IS NULL
+     ORDER BY received_at ASC LIMIT ?`,
+  )
+    .bind(limit)
+    .all<StoredEmail>();
+  return r.results || [];
+}
+
+export async function markEmailAttioSynced(env: Env, id: string): Promise<void> {
+  await env.DB.prepare(`UPDATE emails SET attio_synced_at = ? WHERE id = ?`)
+    .bind(Date.now(), id)
+    .run();
+}
+
 export async function deleteEmail(env: Env, id: string): Promise<void> {
   await env.DB.prepare(`DELETE FROM emails WHERE id = ?`).bind(id).run();
 }
@@ -122,6 +142,8 @@ interface EventRow {
   raw_ics: string | null;
   source_email_id: string | null;
   reminder_sent: number;
+  attio_meeting_id: string | null;
+  attio_synced_at: number | null;
   updated_at: number;
   created_at: number;
 }
@@ -131,6 +153,8 @@ export function rowToEvent(r: EventRow): CalEvent & {
   isOwn: boolean;
   sourceEmailId: string | null;
   reminderSent: boolean;
+  attioMeetingId: string | null;
+  attioSyncedAt: number | null;
 } {
   return {
     uid: r.uid,
@@ -149,6 +173,8 @@ export function rowToEvent(r: EventRow): CalEvent & {
     isOwn: !!r.is_own,
     sourceEmailId: r.source_email_id,
     reminderSent: !!r.reminder_sent,
+    attioMeetingId: r.attio_meeting_id,
+    attioSyncedAt: r.attio_synced_at,
   };
 }
 
@@ -271,6 +297,30 @@ export async function eventsNeedingReminder(env: Env, nowMs: number, windowMs: n
     .bind(nowMs, nowMs + windowMs)
     .all<EventRow>();
   return (r.results || []).map(rowToEvent);
+}
+
+/** Events never synced, or changed since the last successful sync. */
+export async function eventsPendingAttio(env: Env, limit: number) {
+  const r = await env.DB.prepare(
+    `SELECT * FROM calendar_events
+     WHERE attio_synced_at IS NULL OR updated_at > attio_synced_at
+     ORDER BY updated_at ASC LIMIT ?`,
+  )
+    .bind(limit)
+    .all<EventRow>();
+  return (r.results || []).map(rowToEvent);
+}
+
+export async function setEventAttioSynced(
+  env: Env,
+  uid: string,
+  meetingId: string | null,
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE calendar_events SET attio_meeting_id = ?, attio_synced_at = ? WHERE uid = ?`,
+  )
+    .bind(meetingId, Date.now(), uid)
+    .run();
 }
 
 export async function linkEventSource(

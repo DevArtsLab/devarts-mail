@@ -18,3 +18,10 @@ SESSION_SECRET=change-me-long-random-string
 # (METHOD:PUBLISH — Gmail shows "Add to calendar", no RSVP is possible
 # from Gmail, and this address is never exposed to organizers).
 # GCAL_FORWARD_TO=you@gmail.com
+
+# Attio CRM sync (optional): mirrors emails -> notes and events -> meetings.
+# Attio workspace -> Settings -> Developers -> Access tokens. Required
+# scopes: record_permission:read-write, object_configuration:read,
+# note:read-write, meeting:read-write. Enable with ATTIO_SYNC_ENABLED in
+# wrangler.jsonc.
+# ATTIO_ACCESS_TOKEN=

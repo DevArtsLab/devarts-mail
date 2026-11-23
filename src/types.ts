@@ -20,6 +20,12 @@ export interface Env {
   SESSION_SECRET: string;
   /** Personal Gmail that receives read-only PUBLISH copies of invites. */
   GCAL_FORWARD_TO?: string;
+  /** "true" to mirror emails/events into Attio (needs ATTIO_ACCESS_TOKEN). */
+  ATTIO_SYNC_ENABLED?: string;
+  /** Attio workspace access token (secret). */
+  ATTIO_ACCESS_TOKEN?: string;
+  /** Comma-separated extra "self" addresses excluded from sync (e.g. Gmail). */
+  ATTIO_IGNORE_ADDRESSES?: string;
 }
 
 export type RsvpStatus = "ACCEPTED" | "DECLINED" | "TENTATIVE";
@@ -71,6 +77,8 @@ export interface StoredEmail {
   event_uid: string | null;
   read: number;
   received_at: number;
+  /** Set once the email has been mirrored to Attio. */
+  attio_synced_at?: number | null;
   /** List view only: first chars of body_text (not present on getEmail). */
   snippet?: string;
 }
