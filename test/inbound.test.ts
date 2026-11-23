@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { handleInbound, applyCalendarUpdate } from "../src/inbound";
-import { upsertEvent } from "../src/db";
+import { getEvent, upsertEvent } from "../src/db";
 import type { CalEvent, Env } from "../src/types";
 
 // --- in-memory D1 stub -------------------------------------------------
@@ -245,7 +245,17 @@ const baseEvent = (uid: string, organizer: string): CalEvent => ({
 // --- tests --------------------------------------------------------------
 
 describe("applyCalendarUpdate", () => {
-  it("rejects a REQUEST on an own event, even from the 'organizer' field", async () => {
+  const apply = (
+    env: Env,
+    sender: string,
+    method: string,
+    ev: CalEvent,
+    fromAddr = sender,
+  ) => applyCalendarUpdate(env, sender, fromAddr, method, ev, "");
+
+  const stored = (env: Env, uid: string) => getEvent(env, uid);
+
+  it("rejects REQUEST and CANCEL on an own event", async () => {
     const { env } = makeEnv();
     await upsertEvent(env, baseEvent("u1", "amir@devartslab.com"), {
       isOwn: true,
@@ -255,208 +265,131 @@ describe("applyCalendarUpdate", () => {
       summary: "Hijacked",
       attendees: [{ email: "mallory@evil.com" }],
     };
-    const r = await applyCalendarUpdate(
-      env,
-      "mallory@evil.com",
-      "mallory@evil.com",
-      "REQUEST",
-      forged,
-      "",
-    );
-    expect(r.applied).toBe(false);
-    const { getEvent } = await import("../src/db");
-    const stored = await getEvent(env, "u1");
-    expect(stored?.summary).toBe("Original");
-    expect(stored?.organizerEmail).toBe("amir@devartslab.com");
-    expect(stored?.attendees).toEqual([]);
-  });
-
-  it("rejects a CANCEL on an own event", async () => {
-    const { env } = makeEnv();
-    await upsertEvent(env, baseEvent("u2", "amir@devartslab.com"), {
-      isOwn: true,
+    for (const method of ["REQUEST", "CANCEL"]) {
+      const r = await apply(env, "mallory@evil.com", method, forged);
+      expect(r.applied).toBe(false);
+    }
+    expect(await stored(env, "u1")).toMatchObject({
+      summary: "Original",
+      organizerEmail: "amir@devartslab.com",
+      status: "CONFIRMED",
+      attendees: [],
     });
-    const r = await applyCalendarUpdate(
-      env,
-      "mallory@evil.com",
-      "mallory@evil.com",
-      "CANCEL",
-      baseEvent("u2", "mallory@evil.com"),
-      "",
-    );
-    expect(r.applied).toBe(false);
-    const { getEvent } = await import("../src/db");
-    expect((await getEvent(env, "u2"))?.status).toBe("CONFIRMED");
   });
 
-  it("rejects a REQUEST on a stored invite from a non-organizer sender", async () => {
+  it("rejects REQUEST and CANCEL on a stored invite from a non-organizer", async () => {
+    const { env } = makeEnv();
+    await upsertEvent(env, baseEvent("u2", "jane@example.com"), {});
+    const forged = {
+      ...baseEvent("u2", "mallory@evil.com"),
+      summary: "Hijacked",
+    };
+    for (const method of ["REQUEST", "CANCEL"]) {
+      const r = await apply(env, "mallory@evil.com", method, forged);
+      expect(r.applied).toBe(false);
+    }
+    expect(await stored(env, "u2")).toMatchObject({
+      summary: "Original",
+      organizerEmail: "jane@example.com",
+      status: "CONFIRMED",
+    });
+  });
+
+  it("applies REQUEST and CANCEL from the stored organizer", async () => {
     const { env } = makeEnv();
     await upsertEvent(env, baseEvent("u3", "jane@example.com"), {});
-    const r = await applyCalendarUpdate(
-      env,
-      "mallory@evil.com",
-      "mallory@evil.com",
-      "REQUEST",
-      { ...baseEvent("u3", "mallory@evil.com"), summary: "Hijacked" },
-      "",
-    );
-    expect(r.applied).toBe(false);
-    const { getEvent } = await import("../src/db");
-    const stored = await getEvent(env, "u3");
-    expect(stored?.summary).toBe("Original");
-    expect(stored?.organizerEmail).toBe("jane@example.com");
-  });
 
-  it("applies a REQUEST update from the stored organizer", async () => {
-    const { env } = makeEnv();
-    await upsertEvent(env, baseEvent("u4", "jane@example.com"), {});
-    const r = await applyCalendarUpdate(
-      env,
-      "jane@example.com",
-      "jane@example.com",
-      "REQUEST",
-      { ...baseEvent("u4", "jane@example.com"), summary: "Moved", sequence: 1 },
-      "",
-    );
-    expect(r.applied).toBe(true);
-    expect(r.needsReply).toBe(true);
-    const { getEvent } = await import("../src/db");
-    expect((await getEvent(env, "u4"))?.summary).toBe("Moved");
-  });
+    const upd = await apply(env, "jane@example.com", "REQUEST", {
+      ...baseEvent("u3", "jane@example.com"),
+      summary: "Moved",
+      sequence: 1,
+    });
+    expect(upd).toMatchObject({ applied: true, needsReply: true });
+    expect((await stored(env, "u3"))?.summary).toBe("Moved");
 
-  it("applies a CANCEL from the stored organizer", async () => {
-    const { env } = makeEnv();
-    await upsertEvent(env, baseEvent("u5", "jane@example.com"), {});
-    const r = await applyCalendarUpdate(
+    const cxl = await apply(
       env,
-      "jane@example.com",
       "jane@example.com",
       "CANCEL",
-      baseEvent("u5", "jane@example.com"),
-      "",
+      baseEvent("u3", "jane@example.com"),
     );
-    expect(r.applied).toBe(true);
-    const { getEvent } = await import("../src/db");
-    expect((await getEvent(env, "u5"))?.status).toBe("CANCELLED");
+    expect(cxl.applied).toBe(true);
+    expect((await stored(env, "u3"))?.status).toBe("CANCELLED");
   });
 
-  it("rejects a CANCEL on a stored invite from a non-organizer sender", async () => {
+  it("rejects a first-contact REQUEST claiming an own identity or a foreign organizer", async () => {
     const { env } = makeEnv();
-    await upsertEvent(env, baseEvent("u5b", "jane@example.com"), {});
-    const r = await applyCalendarUpdate(
-      env,
-      "mallory@evil.com",
-      "mallory@evil.com",
-      "CANCEL",
-      baseEvent("u5b", "jane@example.com"),
-      "",
-    );
-    expect(r.applied).toBe(false);
-    const { getEvent } = await import("../src/db");
-    expect((await getEvent(env, "u5b"))?.status).toBe("CONFIRMED");
-  });
-
-  it("rejects a first-contact REQUEST that claims one of our own identities", async () => {
-    const { env } = makeEnv();
-    const r = await applyCalendarUpdate(
-      env,
-      "mallory@evil.com",
-      "mallory@evil.com",
-      "REQUEST",
-      baseEvent("u8", "secret@devartslab.com"),
-      "",
-    );
-    expect(r.applied).toBe(false);
-    const { getEvent } = await import("../src/db");
-    expect(await getEvent(env, "u8")).toBeNull();
-  });
-
-  it("rejects a first-contact REQUEST whose claimed organizer is not the sender", async () => {
-    const { env } = makeEnv();
-    const r = await applyCalendarUpdate(
-      env,
-      "mallory@evil.com",
-      "mallory@evil.com",
-      "REQUEST",
-      baseEvent("u9", "jane@example.com"),
-      "",
-    );
-    expect(r.applied).toBe(false);
-    const { getEvent } = await import("../src/db");
-    expect(await getEvent(env, "u9")).toBeNull();
+    for (const organizer of ["secret@devartslab.com", "jane@example.com"]) {
+      const uid = `u-${organizer}`;
+      const r = await apply(
+        env,
+        "mallory@evil.com",
+        "REQUEST",
+        baseEvent(uid, organizer),
+      );
+      expect(r.applied).toBe(false);
+      expect(await stored(env, uid)).toBeNull();
+    }
   });
 
   it("accepts a first-contact REQUEST when the From header is the claimed organizer", async () => {
     const { env } = makeEnv();
-    const r = await applyCalendarUpdate(
+    const r = await apply(
       env,
       "bounces@calendar.example.com",
-      "jane@example.com",
       "REQUEST",
-      baseEvent("u10", "jane@example.com"),
-      "",
+      baseEvent("u6", "jane@example.com"),
+      "jane@example.com",
     );
     expect(r.applied).toBe(true);
-    const { getEvent } = await import("../src/db");
-    expect((await getEvent(env, "u10"))?.organizerEmail).toBe("jane@example.com");
+    expect((await stored(env, "u6"))?.organizerEmail).toBe("jane@example.com");
   });
 
   it("REPLY updates only the sender's own PARTSTAT, only on own events", async () => {
     const { env } = makeEnv();
     const own = {
-      ...baseEvent("u6", "amir@devartslab.com"),
+      ...baseEvent("u7", "amir@devartslab.com"),
       attendees: [
         { email: "bob@example.com", partstat: "NEEDS-ACTION" },
         { email: "carol@example.com", partstat: "NEEDS-ACTION" },
       ],
     };
     await upsertEvent(env, own, { isOwn: true });
+    const partstat = async (email: string) =>
+      (await stored(env, "u7"))?.attendees.find((a) => a.email === email)
+        ?.partstat;
 
     // Carol replies: only her row changes.
-    let r = await applyCalendarUpdate(
-      env,
-      "carol@example.com",
-      "carol@example.com",
-      "REPLY",
-      { ...own, attendees: [{ email: "carol@example.com", partstat: "DECLINED" }] },
-      "",
-    );
+    let r = await apply(env, "carol@example.com", "REPLY", {
+      ...own,
+      attendees: [{ email: "carol@example.com", partstat: "DECLINED" }],
+    });
     expect(r.applied).toBe(true);
-    const { getEvent } = await import("../src/db");
-    let stored = (await getEvent(env, "u6"))!;
-    expect(stored.attendees.find((a) => a.email === "carol@example.com")?.partstat).toBe("DECLINED");
-    expect(stored.attendees.find((a) => a.email === "bob@example.com")?.partstat).toBe("NEEDS-ACTION");
+    expect(await partstat("carol@example.com")).toBe("DECLINED");
+    expect(await partstat("bob@example.com")).toBe("NEEDS-ACTION");
 
     // Mallory can't set Bob's status: she only matches herself.
-    r = await applyCalendarUpdate(
-      env,
-      "mallory@evil.com",
-      "mallory@evil.com",
-      "REPLY",
-      { ...own, attendees: [{ email: "bob@example.com", partstat: "DECLINED" }] },
-      "",
-    );
+    r = await apply(env, "mallory@evil.com", "REPLY", {
+      ...own,
+      attendees: [{ email: "bob@example.com", partstat: "DECLINED" }],
+    });
     expect(r.applied).toBe(false);
-    stored = (await getEvent(env, "u6"))!;
-    expect(stored.attendees.find((a) => a.email === "bob@example.com")?.partstat).toBe("NEEDS-ACTION");
+    expect(await partstat("bob@example.com")).toBe("NEEDS-ACTION");
 
     // And REPLY does nothing at all on events we didn't send.
     const inbound = {
-      ...baseEvent("u7", "jane@example.com"),
+      ...baseEvent("u8", "jane@example.com"),
       attendees: [{ email: "amir@devartslab.com", partstat: "NEEDS-ACTION" }],
     };
     await upsertEvent(env, inbound, {});
-    r = await applyCalendarUpdate(
-      env,
-      "mallory@evil.com",
-      "mallory@evil.com",
-      "REPLY",
-      { ...inbound, attendees: [{ email: "amir@devartslab.com", partstat: "DECLINED" }] },
-      "",
-    );
+    r = await apply(env, "mallory@evil.com", "REPLY", {
+      ...inbound,
+      attendees: [{ email: "amir@devartslab.com", partstat: "DECLINED" }],
+    });
     expect(r.applied).toBe(false);
-    stored = (await getEvent(env, "u7"))!;
-    expect(stored.attendees[0].partstat).toBe("NEEDS-ACTION");
+    expect((await stored(env, "u8"))?.attendees[0].partstat).toBe(
+      "NEEDS-ACTION",
+    );
   });
 });
 
