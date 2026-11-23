@@ -16,8 +16,8 @@ function b64urlDecode(s: string): Uint8Array {
   return bytes;
 }
 
-async function accessKeys(env: Env): Promise<Map<string, CryptoKey>> {
-  if (jwksCache && Date.now() - jwksCache.at < 3600_000) return jwksCache.keys;
+async function accessKeys(env: Env, refresh = false): Promise<Map<string, CryptoKey>> {
+  if (!refresh && jwksCache && Date.now() - jwksCache.at < 3600_000) return jwksCache.keys;
   const r = await fetch(`https://${env.CF_ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`);
   if (!r.ok) throw new Error(`access certs fetch failed: ${r.status}`);
   const { keys } = await r.json<{ keys: Record<string, unknown>[] }>();
@@ -60,8 +60,8 @@ export async function accessEmail(env: Env, req: Request): Promise<string | null
   if (parts.length !== 3) return null;
   try {
     const header = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
-    const keys = await accessKeys(env);
-    const key = keys.get(header.kid);
+    let key = (await accessKeys(env)).get(header.kid);
+    if (!key) key = (await accessKeys(env, true)).get(header.kid);
     if (!key) return null;
     const ok = await crypto.subtle.verify(
       "RSASSA-PKCS1-v1_5",
@@ -73,6 +73,7 @@ export async function accessEmail(env: Env, req: Request): Promise<string | null
     const claims = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[1])));
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
     if (!aud.includes(env.CF_ACCESS_AUD)) return null;
+    if (claims.iss !== `https://${env.CF_ACCESS_TEAM_DOMAIN}`) return null;
     if (!claims.exp || claims.exp * 1000 < Date.now()) return null;
     return claims.email || null;
   } catch {
