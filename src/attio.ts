@@ -27,6 +27,8 @@ const EVENT_BATCH = 20;
 const DELETE_BATCH = 50;
 /** Failed syncs back off this long before the next attempt. */
 const RETRY_DELAY_MS = 30 * 60 * 1000;
+/** Attio rejects meeting descriptions over 10,000 chars. */
+const MAX_MEETING_DESC = 9000;
 const MAX_BODY_CHARS = 4000;
 const MAX_PARTICIPANTS = 20;
 
@@ -90,16 +92,7 @@ async function syncPendingDeletes(env: Env): Promise<void> {
 export async function deleteAttioEmailNotes(env: Env, e: StoredEmail): Promise<void> {
   if (!attioEnabled(env)) return;
   for (const noteId of Object.values(parseNoteMap(e.attio_notes))) {
-    try {
-      await attioDelete(env, `/notes/${noteId}`);
-    } catch (err) {
-      console.error("attio note delete failed:", noteId, err);
-      // Local row is about to be deleted; queue the remote delete so the
-      // cron can retry instead of losing the note ID forever.
-      await enqueueAttioDelete(env, "note", noteId).catch((e) =>
-        console.error("attio delete enqueue failed:", noteId, e),
-      );
-    }
+    await deleteOrQueue(env, "note", noteId);
   }
 }
 
@@ -109,12 +102,22 @@ export async function deleteAttioMeeting(
   ev: { attioMeetingId?: string | null },
 ): Promise<void> {
   if (!attioEnabled(env) || !ev.attioMeetingId) return;
+  await deleteOrQueue(env, "meeting", ev.attioMeetingId);
+}
+
+/** DELETE a remote object; on failure queue it for cron retry. */
+async function deleteOrQueue(
+  env: Env,
+  kind: "note" | "meeting",
+  remoteId: string,
+): Promise<void> {
+  const path = `/${kind === "note" ? "notes" : "meetings"}/${remoteId}`;
   try {
-    await attioDelete(env, `/meetings/${ev.attioMeetingId}`);
+    await attioDelete(env, path);
   } catch (err) {
-    console.error("attio meeting delete failed:", ev.attioMeetingId, err);
-    await enqueueAttioDelete(env, "meeting", ev.attioMeetingId).catch((e) =>
-      console.error("attio delete enqueue failed:", ev.attioMeetingId, e),
+    console.error(`attio ${kind} delete failed:`, remoteId, err);
+    await enqueueAttioDelete(env, kind, remoteId).catch((e) =>
+      console.error("attio delete enqueue failed:", remoteId, e),
     );
   }
 }
@@ -189,16 +192,26 @@ async function syncEvents(env: Env, retryBefore: number): Promise<void> {
         continue;
       }
       // Attio meetings are immutable: PATCH only appends linked records,
-      // so any change means delete + recreate.
-      if (ev.attioMeetingId) {
-        await attioDelete(env, `/meetings/${ev.attioMeetingId}`);
-      }
+      // so any change means create a replacement, then remove the old one.
+      // Create FIRST: if Attio rejects the payload the existing meeting
+      // stays intact instead of leaving the event with no meeting.
+      const oldId = ev.attioMeetingId;
+      const linked = oldId ? await meetingLinkedRecords(env, oldId) : [];
       const res = await attioFetch(env, "POST", "/meetings", {
         data: buildMeetingBody(env, ev),
       });
       const meetingId = res?.data?.id?.meeting_id;
       if (!meetingId) throw new Error("no meeting_id in response");
+      if (linked.length) {
+        // Migrate explicit record links (e.g. deals) to the replacement.
+        await attioFetch(env, "PATCH", `/meetings/${meetingId}`, {
+          data: { linked_records: linked },
+        }).catch((e) =>
+          console.error("attio linked-records migrate failed:", meetingId, e),
+        );
+      }
       await setEventAttioSynced(env, ev.uid, meetingId);
+      if (oldId) await deleteOrQueue(env, "meeting", oldId);
     } catch (e) {
       console.error("attio event sync failed:", ev.uid, e);
       await markEventAttioAttempted(env, ev.uid).catch(() => {});
@@ -286,16 +299,21 @@ export function buildMeetingBody(env: Env, ev: CalEvent): MeetingBody {
     });
   }
 
+  const desc = [
+    ev.description || "",
+    ev.location ? `Location: ${ev.location}` : "",
+    `Status: ${ev.status}`,
+    `UID: ${ev.uid}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   return {
     title: ev.summary || "(untitled event)",
-    description: [
-      ev.description || "",
-      ev.location ? `Location: ${ev.location}` : "",
-      `Status: ${ev.status}`,
-      `UID: ${ev.uid}`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
+    description:
+      desc.length > MAX_MEETING_DESC
+        ? `${desc.slice(0, MAX_MEETING_DESC)}\n[truncated]`
+        : desc,
     is_all_day: ev.allDay,
     start: ev.allDay
       ? { date: day(ev.dtstart) }
@@ -390,6 +408,27 @@ async function attioFetch(
     throw err;
   }
   return r.status === 204 ? null : r.json();
+}
+
+/** Explicit record links on a meeting, in PATCH linked_records shape. */
+async function meetingLinkedRecords(
+  env: Env,
+  meetingId: string,
+): Promise<{ object: string; record_id: string }[]> {
+  try {
+    const res = await attioFetch(env, "GET", `/meetings/${meetingId}`);
+    const raw = res?.data?.linked_records;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((r: any) => ({
+        object: r.object || r.target_object,
+        record_id: r.record_id || r.target_record_id,
+      }))
+      .filter((r) => r.object && r.record_id);
+  } catch (e) {
+    console.error("attio meeting read failed:", meetingId, e);
+    return [];
+  }
 }
 
 /** DELETE that tolerates 404 (resource already gone in Attio). */
