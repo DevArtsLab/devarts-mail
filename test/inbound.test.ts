@@ -258,6 +258,7 @@ describe("applyCalendarUpdate", () => {
     const r = await applyCalendarUpdate(
       env,
       "mallory@evil.com",
+      "mallory@evil.com",
       "REQUEST",
       forged,
       "",
@@ -278,6 +279,7 @@ describe("applyCalendarUpdate", () => {
     const r = await applyCalendarUpdate(
       env,
       "mallory@evil.com",
+      "mallory@evil.com",
       "CANCEL",
       baseEvent("u2", "mallory@evil.com"),
       "",
@@ -292,6 +294,7 @@ describe("applyCalendarUpdate", () => {
     await upsertEvent(env, baseEvent("u3", "jane@example.com"), {});
     const r = await applyCalendarUpdate(
       env,
+      "mallory@evil.com",
       "mallory@evil.com",
       "REQUEST",
       { ...baseEvent("u3", "mallory@evil.com"), summary: "Hijacked" },
@@ -310,6 +313,7 @@ describe("applyCalendarUpdate", () => {
     const r = await applyCalendarUpdate(
       env,
       "jane@example.com",
+      "jane@example.com",
       "REQUEST",
       { ...baseEvent("u4", "jane@example.com"), summary: "Moved", sequence: 1 },
       "",
@@ -326,6 +330,7 @@ describe("applyCalendarUpdate", () => {
     const r = await applyCalendarUpdate(
       env,
       "jane@example.com",
+      "jane@example.com",
       "CANCEL",
       baseEvent("u5", "jane@example.com"),
       "",
@@ -333,6 +338,67 @@ describe("applyCalendarUpdate", () => {
     expect(r.applied).toBe(true);
     const { getEvent } = await import("../src/db");
     expect((await getEvent(env, "u5"))?.status).toBe("CANCELLED");
+  });
+
+  it("rejects a CANCEL on a stored invite from a non-organizer sender", async () => {
+    const { env } = makeEnv();
+    await upsertEvent(env, baseEvent("u5b", "jane@example.com"), {});
+    const r = await applyCalendarUpdate(
+      env,
+      "mallory@evil.com",
+      "mallory@evil.com",
+      "CANCEL",
+      baseEvent("u5b", "jane@example.com"),
+      "",
+    );
+    expect(r.applied).toBe(false);
+    const { getEvent } = await import("../src/db");
+    expect((await getEvent(env, "u5b"))?.status).toBe("CONFIRMED");
+  });
+
+  it("rejects a first-contact REQUEST that claims one of our own identities", async () => {
+    const { env } = makeEnv();
+    const r = await applyCalendarUpdate(
+      env,
+      "mallory@evil.com",
+      "mallory@evil.com",
+      "REQUEST",
+      baseEvent("u8", "secret@devartslab.com"),
+      "",
+    );
+    expect(r.applied).toBe(false);
+    const { getEvent } = await import("../src/db");
+    expect(await getEvent(env, "u8")).toBeNull();
+  });
+
+  it("rejects a first-contact REQUEST whose claimed organizer is not the sender", async () => {
+    const { env } = makeEnv();
+    const r = await applyCalendarUpdate(
+      env,
+      "mallory@evil.com",
+      "mallory@evil.com",
+      "REQUEST",
+      baseEvent("u9", "jane@example.com"),
+      "",
+    );
+    expect(r.applied).toBe(false);
+    const { getEvent } = await import("../src/db");
+    expect(await getEvent(env, "u9")).toBeNull();
+  });
+
+  it("accepts a first-contact REQUEST when the From header is the claimed organizer", async () => {
+    const { env } = makeEnv();
+    const r = await applyCalendarUpdate(
+      env,
+      "bounces@calendar.example.com",
+      "jane@example.com",
+      "REQUEST",
+      baseEvent("u10", "jane@example.com"),
+      "",
+    );
+    expect(r.applied).toBe(true);
+    const { getEvent } = await import("../src/db");
+    expect((await getEvent(env, "u10"))?.organizerEmail).toBe("jane@example.com");
   });
 
   it("REPLY updates only the sender's own PARTSTAT, only on own events", async () => {
@@ -350,6 +416,7 @@ describe("applyCalendarUpdate", () => {
     let r = await applyCalendarUpdate(
       env,
       "carol@example.com",
+      "carol@example.com",
       "REPLY",
       { ...own, attendees: [{ email: "carol@example.com", partstat: "DECLINED" }] },
       "",
@@ -363,6 +430,7 @@ describe("applyCalendarUpdate", () => {
     // Mallory can't set Bob's status: she only matches herself.
     r = await applyCalendarUpdate(
       env,
+      "mallory@evil.com",
       "mallory@evil.com",
       "REPLY",
       { ...own, attendees: [{ email: "bob@example.com", partstat: "DECLINED" }] },
@@ -381,6 +449,7 @@ describe("applyCalendarUpdate", () => {
     r = await applyCalendarUpdate(
       env,
       "mallory@evil.com",
+      "mallory@evil.com",
       "REPLY",
       { ...inbound, attendees: [{ email: "amir@devartslab.com", partstat: "DECLINED" }] },
       "",
@@ -393,7 +462,7 @@ describe("applyCalendarUpdate", () => {
 
 describe("handleInbound", () => {
   it("stores a fresh REQUEST and leaves an own event untouched by a spoofed one", async () => {
-    const { env, events } = makeEnv();
+    const { env, events, emails } = makeEnv();
     await upsertEvent(env, baseEvent("own-uid", "amir@devartslab.com"), {
       isOwn: true,
     });
@@ -412,6 +481,10 @@ describe("handleInbound", () => {
     const row = events.get("own-uid")!;
     expect(row.summary).toBe("Original");
     expect(row.organizer_email).toBe("amir@devartslab.com");
+    // The rejected message is stored but not linked to the event, so
+    // the inbox offers no RSVP action on it.
+    const rejectedMail = [...emails.values()][0];
+    expect(rejectedMail.event_uid).toBeNull();
 
     // A brand-new UID from the same sender still lands as a normal invite.
     const msg2 = mimeEmail({

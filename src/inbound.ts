@@ -3,7 +3,7 @@
 import type { CalEvent, Env } from "./types";
 import { parseInbound, sendMail } from "./mail";
 import { parseIcs, buildReplyIcs, buildExportIcs } from "./ical";
-import { identityForEmail, primaryIdentity } from "./identities";
+import { findIdentity, identityForEmail, primaryIdentity } from "./identities";
 import {
   insertEmail,
   upsertEvent,
@@ -33,18 +33,21 @@ export async function handleInbound(
     const ev = cal.events[0];
 
     if (ev?.uid) {
-      eventUid = ev.uid;
-
       // Trust the envelope sender, not the (easily spoofed) From header.
       const sender = (message.from || parsed.from || "").toLowerCase();
       const r = await applyCalendarUpdate(
         env,
         sender,
+        parsed.from,
         method,
         ev,
         parsed.calendar.ics,
       );
       calendarApplied = r.applied;
+      // Only attach the event to this email when the write was applied;
+      // a rejected update must not leave an RSVP affordance pointing at
+      // the real event.
+      if (r.applied) eventUid = ev.uid;
       if (r.needsReply) needsReply = { uid: ev.uid };
     }
   }
@@ -93,10 +96,14 @@ export async function handleInbound(
  *   message sender is the stored organizer.
  * - REPLY only applies to own events and only updates the attendee whose
  *   address equals the sender.
+ * - A first-contact REQUEST (unknown UID) must claim an organizer that
+ *   is the message sender (envelope or From header), and never one of
+ *   our own identities: inbound mail cannot create events we organize.
  */
 export async function applyCalendarUpdate(
   env: Env,
   sender: string,
+  fromAddr: string,
   method: string | null,
   ev: CalEvent,
   rawIcs: string,
@@ -109,6 +116,13 @@ export async function applyCalendarUpdate(
 
   if (method === "REQUEST") {
     if (!existing) {
+      const organizer = (ev.organizerEmail || "").toLowerCase();
+      if (
+        findIdentity(env, organizer) ||
+        (organizer && organizer !== sender && organizer !== fromAddr)
+      ) {
+        return { applied: false, needsReply: false };
+      }
       // Fresh invite: store it, mark RSVP pending.
       await upsertEvent(env, ev, { myPartstat: "NEEDS-ACTION", rawIcs });
       return { applied: true, needsReply: true };
