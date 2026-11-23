@@ -67,7 +67,7 @@ export async function accessEmail(env: Env, req: Request): Promise<string | null
   }
   // Signing-key fetch failures propagate (500) so a cert-service outage
   // is not mistaken for bad credentials.
-  const kid = header.kid;
+  const kid = header?.kid;
   if (!kid) return null;
   let key = (await accessKeys(env)).get(kid);
   if (!key) key = (await accessKeys(env, true)).get(kid);
@@ -99,7 +99,7 @@ export async function accessEmail(env: Env, req: Request): Promise<string | null
 
 /** Team Access logout URL, or null when Access is not configured. */
 export function accessLogoutUrl(env: Env): string | null {
-  return env.CF_ACCESS_TEAM_DOMAIN
+  return env.CF_ACCESS_BYPASS !== "true" && env.CF_ACCESS_TEAM_DOMAIN
     ? `https://${env.CF_ACCESS_TEAM_DOMAIN}/cdn-cgi/access/logout`
     : null;
 }
