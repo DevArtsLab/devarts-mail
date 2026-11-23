@@ -126,6 +126,18 @@ describe("buildMeetingBody", () => {
     expect(b.description).toContain("[truncated]");
   });
 
+  it("preserves all notes when notes plus metadata fit exactly", () => {
+    // meta = "Location: Room 4\nStatus: CONFIRMED\nUID: u1" = 42 chars,
+    // plus one joining newline => notes budget is 8957.
+    const b = buildMeetingBody(
+      env,
+      ev({ description: "y".repeat(8957), location: "Room 4" }),
+    );
+    expect(b.description).not.toContain("[truncated]");
+    expect(b.description).toContain("y".repeat(8957));
+    expect(b.description).toContain("Location: Room 4");
+  });
+
   it("uses exclusive date end for all-day events", () => {
     const start = Date.UTC(2026, 10, 15);
     const b = buildMeetingBody(env, ev({ allDay: true, dtstart: start, dtend: start }));

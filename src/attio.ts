@@ -309,15 +309,14 @@ export function buildMeetingBody(env: Env, ev: CalEvent): MeetingBody {
     .filter(Boolean)
     .join("\n");
   const TRUNCATED = "\n[truncated]";
-  const notesBudget = Math.max(
-    0,
-    MAX_MEETING_DESC - meta.length - TRUNCATED.length - 2,
-  );
+  const notesBudget = MAX_MEETING_DESC - meta.length - 1;
   const rawNotes = ev.description || "";
   const notes =
-    rawNotes.length > notesBudget
-      ? `${rawNotes.slice(0, notesBudget)}${TRUNCATED}`
-      : rawNotes;
+    rawNotes.length <= notesBudget
+      ? rawNotes
+      : notesBudget >= TRUNCATED.length
+        ? `${rawNotes.slice(0, notesBudget - TRUNCATED.length)}${TRUNCATED}`
+        : "";
   const desc = [notes, meta].filter(Boolean).join("\n");
 
   return {
