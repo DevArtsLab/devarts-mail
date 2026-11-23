@@ -9,6 +9,8 @@ import type { CalEvent, Env, StoredEmail } from "./types";
 import { listIdentities, primaryIdentity } from "./identities";
 import {
   D1BudgetError,
+  D1Budget,
+  newD1Budget,
   d1CallsLeft,
   emailsPendingAttio,
   markEmailAttioAttempted,
@@ -19,7 +21,7 @@ import {
   setEventAttioSynced,
   enqueueAttioDeletes,
   pendingAttioDeletes,
-  removeAttioDelete,
+  removeAttioDeletes,
   removeAttioDeleteRefs,
   deferAttioDelete,
 } from "./db";
@@ -91,32 +93,41 @@ export async function syncAttio(env: Env): Promise<void> {
   if (!attioEnabled(env)) return;
   const retryBefore = Date.now() - RETRY_DELAY_MS;
   const budget: AttioBudget = { remaining: SUBREQUEST_BUDGET };
+  // One D1 budget per scheduled run, passed explicitly so concurrent
+  // invocations sharing env cannot reset or drain it.
+  const d1 = newD1Budget();
   // Deletes and meetings first: email backfill is unbounded and must not
   // starve cleanup or calendar sync of the shared call budget.
-  await syncPendingDeletes(env, budget);
-  await syncEvents(env, retryBefore, budget);
-  await syncEmails(env, retryBefore, budget);
+  await syncPendingDeletes(env, budget, d1);
+  await syncEvents(env, retryBefore, budget, d1);
+  await syncEmails(env, retryBefore, budget, d1);
 }
 
 /** Drain the queue of remote deletes that failed after local removal. */
 export async function syncPendingDeletes(
   env: Env,
   budget?: AttioBudget,
+  d1?: D1Budget,
 ): Promise<void> {
   const now = Date.now();
-  for (const d of await pendingAttioDeletes(env, DELETE_BATCH, now)) {
-    if ((budget && budget.remaining <= 0) || d1CallsLeft(env) < 1) break;
+  const drained: number[] = [];
+  for (const d of await pendingAttioDeletes(env, DELETE_BATCH, now, d1)) {
+    if ((budget && budget.remaining <= 0) || d1CallsLeft(d1) < 2) break;
     const path = `/${d.kind === "note" ? "notes" : "meetings"}/${d.remote_id}`;
     try {
       await attioDelete(env, path, budget);
-      await removeAttioDelete(env, d.id);
+      drained.push(d.id);
     } catch (e) {
       if (isBudgetError(e)) break;
       const attempts = d.attempts + 1;
-      await deferAttioDelete(env, d.id, attempts, now + attempts * RETRY_DELAY_MS);
+      await deferAttioDelete(env, d.id, attempts, now + attempts * RETRY_DELAY_MS, d1);
       console.error("attio pending delete failed:", d.remote_id, e);
     }
   }
+  // One batched delete for all drained rows instead of one query each.
+  await removeAttioDeletes(env, drained, d1).catch((e) =>
+    console.error("attio delete queue drain failed:", e),
+  );
 }
 
 /** Attio note IDs recorded for an email (empty if never synced). */
@@ -177,8 +188,9 @@ async function syncEmails(
   env: Env,
   retryBefore: number,
   budget: AttioBudget,
+  d1: D1Budget,
 ): Promise<void> {
-  for (const email of await emailsPendingAttio(env, EMAIL_BATCH, retryBefore)) {
+  for (const email of await emailsPendingAttio(env, EMAIL_BATCH, retryBefore, d1)) {
     if (budget.remaining <= 0) break;
     // addr -> note_id for notes already created; retries skip these so a
     // partial failure never produces duplicate notes in Attio.
@@ -188,14 +200,14 @@ async function syncEmails(
       const external = externalAddresses(env, email);
       const pending = external.filter((a) => !(a in noted));
       if (pending.length === 0) {
-        await markEmailAttioSynced(env, email.id);
+        await markEmailAttioSynced(env, email.id, d1);
         continue;
       }
       const { title, content } = buildEmailNote(env, email);
       for (const addr of pending.slice(0, MAX_PARTICIPANTS)) {
         // Each note needs one D1 write (saveEmailAttioNotes); stop before
         // creating a remote note we could not record.
-        if (budget.remaining <= 0 || d1CallsLeft(env) < 1) break;
+        if (budget.remaining <= 0 || d1CallsLeft(d1) < 1) break;
         try {
           const personId = await upsertPerson(env, addr, budget);
           if (!personId) throw new Error("no record_id in person response");
@@ -217,7 +229,7 @@ async function syncEmails(
           const noteId = res?.data?.id?.note_id;
           if (!noteId) throw new Error("no note_id in note response");
           noted[addr] = noteId;
-          await saveEmailAttioNotes(env, email.id, noted);
+          await saveEmailAttioNotes(env, email.id, noted, d1);
         } catch (e) {
           if (isBudgetError(e)) break;
           // Stays unnoted and is retried on the next run; participants
@@ -227,15 +239,15 @@ async function syncEmails(
         }
       }
       if (external.every((a) => a in noted)) {
-        await markEmailAttioSynced(env, email.id);
+        await markEmailAttioSynced(env, email.id, d1);
       } else if (failed) {
         // Back off so permanent failures cannot starve the batch.
-        await markEmailAttioAttempted(env, email.id);
+        await markEmailAttioAttempted(env, email.id, d1);
       }
     } catch (e) {
       if (isBudgetError(e)) break;
       console.error("attio email sync failed:", email.id, e);
-      await markEmailAttioAttempted(env, email.id).catch(() => {});
+      await markEmailAttioAttempted(env, email.id, d1).catch(() => {});
     }
   }
 }
@@ -248,17 +260,18 @@ async function syncEvents(
   env: Env,
   retryBefore: number,
   budget: AttioBudget,
+  d1: D1Budget,
 ): Promise<void> {
-  for (const ev of await eventsPendingAttio(env, EVENT_BATCH, retryBefore)) {
+  for (const ev of await eventsPendingAttio(env, EVENT_BATCH, retryBefore, d1)) {
     // Replacement needs 2 D1 writes (queue enqueue batch + synced save);
     // stop before creating a remote meeting we could not record.
-    if (budget.remaining <= 0 || d1CallsLeft(env) < 2) break;
+    if (budget.remaining <= 0 || d1CallsLeft(d1) < 2) break;
     try {
       if (ev.status === "CANCELLED") {
         if (ev.attioMeetingId) {
           await attioDelete(env, `/meetings/${ev.attioMeetingId}`, budget);
         }
-        await setEventAttioSynced(env, ev.uid, null);
+        await setEventAttioSynced(env, ev.uid, null, d1);
         continue;
       }
       // Attio meetings are immutable: PATCH only appends linked records,
@@ -292,15 +305,15 @@ async function syncEvents(
       // here, the cron still deletes the stale meeting. One batch = one
       // D1 query against the per-invocation limit.
       if (oldId) {
-        await enqueueAttioDeletes(env, [{ kind: "meeting", remoteId: oldId }]);
+        await enqueueAttioDeletes(env, [{ kind: "meeting", remoteId: oldId }], d1);
       }
-      await setEventAttioSynced(env, ev.uid, meetingId);
+      await setEventAttioSynced(env, ev.uid, meetingId, d1);
       // Best-effort immediate delete; the queue row covers failures.
       // On success drop the queue row so the cron does not re-delete.
       if (oldId) {
         try {
           await attioDelete(env, `/meetings/${oldId}`, budget);
-          await removeAttioDeleteRefs(env, "meeting", [oldId]);
+          await removeAttioDeleteRefs(env, "meeting", [oldId], d1);
         } catch (e) {
           console.error("attio old meeting delete failed:", oldId, e);
         }
@@ -308,7 +321,7 @@ async function syncEvents(
     } catch (e) {
       if (isBudgetError(e)) break;
       console.error("attio event sync failed:", ev.uid, e);
-      await markEventAttioAttempted(env, ev.uid).catch(() => {});
+      await markEventAttioAttempted(env, ev.uid, d1).catch(() => {});
     }
   }
 }

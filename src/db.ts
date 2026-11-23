@@ -6,31 +6,30 @@ import type { CalEvent, Env, StoredEmail } from "./types";
 export class D1BudgetError extends Error {}
 
 /**
- * Workers Free allows ~50 D1 queries per invocation. Sync-path functions
- * count against a per-invocation budget stored on env; api requests get
- * the same budget (they use far fewer queries).
+ * Workers Free allows ~50 D1 queries per invocation. Sync paths create
+ * one D1Budget per run and pass it explicitly; nothing mutable is stored
+ * on env, so concurrent invocations sharing the bindings cannot reset
+ * or drain each other's counter. API requests pass no budget.
  */
 const D1_QUERY_BUDGET = 45;
 
-function d1Take(env: Env): void {
-  const e = env as unknown as { __d1Left?: number };
-  if (e.__d1Left === undefined) e.__d1Left = D1_QUERY_BUDGET;
-  if (e.__d1Left <= 0) throw new D1BudgetError("d1 query budget exhausted");
-  e.__d1Left--;
+export interface D1Budget {
+  remaining: number;
+}
+
+export function newD1Budget(): D1Budget {
+  return { remaining: D1_QUERY_BUDGET };
+}
+
+function d1Take(budget?: D1Budget): void {
+  if (!budget) return;
+  if (budget.remaining <= 0) throw new D1BudgetError("d1 query budget exhausted");
+  budget.remaining--;
 }
 
 /** Remaining D1 queries in this invocation (for pre-flight checks). */
-export function d1CallsLeft(env: Env): number {
-  const e = env as unknown as { __d1Left?: number };
-  return e.__d1Left === undefined ? D1_QUERY_BUDGET : e.__d1Left;
-}
-
-/**
- * Reset the per-invocation D1 budget. Workers can reuse the same env
- * object across invocations, so every entry point must call this first.
- */
-export function resetD1Budget(env: Env): void {
-  (env as unknown as { __d1Left?: number }).__d1Left = D1_QUERY_BUDGET;
+export function d1CallsLeft(budget?: D1Budget): number {
+  return budget ? budget.remaining : D1_QUERY_BUDGET;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,8 +131,9 @@ export async function emailsPendingAttio(
   env: Env,
   limit: number,
   retryBefore: number,
+  budget?: D1Budget,
 ): Promise<StoredEmail[]> {
-  d1Take(env);
+  d1Take(budget);
   const r = await env.DB.prepare(
     `SELECT * FROM emails WHERE attio_synced_at IS NULL
      AND (attio_attempted_at IS NULL OR attio_attempted_at <= ?)
@@ -146,15 +146,23 @@ export async function emailsPendingAttio(
 }
 
 /** Record a failed sync attempt so the row backs off before retrying. */
-export async function markEmailAttioAttempted(env: Env, id: string): Promise<void> {
-  d1Take(env);
+export async function markEmailAttioAttempted(
+  env: Env,
+  id: string,
+  budget?: D1Budget,
+): Promise<void> {
+  d1Take(budget);
   await env.DB.prepare(`UPDATE emails SET attio_attempted_at = ? WHERE id = ?`)
     .bind(Date.now(), id)
     .run();
 }
 
-export async function markEmailAttioSynced(env: Env, id: string): Promise<void> {
-  d1Take(env);
+export async function markEmailAttioSynced(
+  env: Env,
+  id: string,
+  budget?: D1Budget,
+): Promise<void> {
+  d1Take(budget);
   await env.DB.prepare(`UPDATE emails SET attio_synced_at = ? WHERE id = ?`)
     .bind(Date.now(), id)
     .run();
@@ -165,8 +173,9 @@ export async function saveEmailAttioNotes(
   env: Env,
   id: string,
   notes: Record<string, string>,
+  budget?: D1Budget,
 ): Promise<void> {
-  d1Take(env);
+  d1Take(budget);
   await env.DB.prepare(`UPDATE emails SET attio_notes = ? WHERE id = ?`)
     .bind(JSON.stringify(notes), id)
     .run();
@@ -360,8 +369,13 @@ export async function eventsNeedingReminder(env: Env, nowMs: number, windowMs: n
 }
 
 /** Events never synced, or changed since the last sync, past retry backoff. */
-export async function eventsPendingAttio(env: Env, limit: number, retryBefore: number) {
-  d1Take(env);
+export async function eventsPendingAttio(
+  env: Env,
+  limit: number,
+  retryBefore: number,
+  budget?: D1Budget,
+) {
+  d1Take(budget);
   const r = await env.DB.prepare(
     `SELECT * FROM calendar_events
      WHERE (attio_synced_at IS NULL OR updated_at > attio_synced_at)
@@ -375,8 +389,12 @@ export async function eventsPendingAttio(env: Env, limit: number, retryBefore: n
 }
 
 /** Record a failed sync attempt so the event backs off before retrying. */
-export async function markEventAttioAttempted(env: Env, uid: string): Promise<void> {
-  d1Take(env);
+export async function markEventAttioAttempted(
+  env: Env,
+  uid: string,
+  budget?: D1Budget,
+): Promise<void> {
+  d1Take(budget);
   await env.DB.prepare(
     `UPDATE calendar_events SET attio_attempted_at = ? WHERE uid = ?`,
   )
@@ -388,8 +406,9 @@ export async function setEventAttioSynced(
   env: Env,
   uid: string,
   meetingId: string | null,
+  budget?: D1Budget,
 ): Promise<void> {
-  d1Take(env);
+  d1Take(budget);
   await env.DB.prepare(
     `UPDATE calendar_events SET attio_meeting_id = ?, attio_synced_at = ?, attio_attempted_at = NULL WHERE uid = ?`,
   )
@@ -407,9 +426,10 @@ export async function setEventAttioSynced(
 export async function enqueueAttioDeletes(
   env: Env,
   items: { kind: "note" | "meeting"; remoteId: string }[],
+  budget?: D1Budget,
 ): Promise<void> {
   if (items.length === 0) return;
-  d1Take(env);
+  d1Take(budget);
   const now = Date.now();
   await env.DB.batch(
     items.map((it) =>
@@ -427,9 +447,10 @@ export async function removeAttioDeleteRefs(
   env: Env,
   kind: "note" | "meeting",
   remoteIds: string[],
+  budget?: D1Budget,
 ): Promise<void> {
   if (remoteIds.length === 0) return;
-  d1Take(env);
+  d1Take(budget);
   await env.DB.batch(
     remoteIds.map((id) =>
       env.DB.prepare(
@@ -443,8 +464,9 @@ export async function deleteEmailAndQueueAttioDeletes(
   env: Env,
   id: string,
   noteIds: string[],
+  budget?: D1Budget,
 ): Promise<void> {
-  d1Take(env);
+  d1Take(budget);
   const now = Date.now();
   const stmts = noteIds.map((remoteId) =>
     env.DB.prepare(
@@ -461,8 +483,9 @@ export async function deleteEventRowAndQueueAttioDelete(
   env: Env,
   uid: string,
   meetingId: string | null,
+  budget?: D1Budget,
 ): Promise<void> {
-  d1Take(env);
+  d1Take(budget);
   const now = Date.now();
   const stmts = meetingId
     ? [
@@ -488,8 +511,9 @@ export async function pendingAttioDeletes(
   env: Env,
   limit: number,
   now: number,
+  budget?: D1Budget,
 ): Promise<PendingAttioDelete[]> {
-  d1Take(env);
+  d1Take(budget);
   const r = await env.DB.prepare(
     `SELECT id, kind, remote_id, attempts FROM attio_deletion_queue
      WHERE next_attempt_at <= ? ORDER BY next_attempt_at ASC LIMIT ?`,
@@ -499,9 +523,19 @@ export async function pendingAttioDeletes(
   return r.results || [];
 }
 
-export async function removeAttioDelete(env: Env, id: number): Promise<void> {
-  d1Take(env);
-  await env.DB.prepare(`DELETE FROM attio_deletion_queue WHERE id = ?`).bind(id).run();
+/** Drop many queue rows in one batch (one D1 query). */
+export async function removeAttioDeletes(
+  env: Env,
+  ids: number[],
+  budget?: D1Budget,
+): Promise<void> {
+  if (ids.length === 0) return;
+  d1Take(budget);
+  await env.DB.batch(
+    ids.map((id) =>
+      env.DB.prepare(`DELETE FROM attio_deletion_queue WHERE id = ?`).bind(id),
+    ),
+  );
 }
 
 export async function deferAttioDelete(
@@ -509,8 +543,9 @@ export async function deferAttioDelete(
   id: number,
   attempts: number,
   nextAttemptAt: number,
+  budget?: D1Budget,
 ): Promise<void> {
-  d1Take(env);
+  d1Take(budget);
   await env.DB.prepare(
     `UPDATE attio_deletion_queue SET attempts = ?, next_attempt_at = ? WHERE id = ?`,
   )

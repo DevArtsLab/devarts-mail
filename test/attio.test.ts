@@ -177,6 +177,7 @@ describe("syncPendingDeletes", () => {
       DB: {
         prepare: (sql: string) => ({
           bind: (..._args: unknown[]) => ({
+            sql,
             all: async () => ({
               results: sql.includes("FROM attio_deletion_queue") ? queueRows : [],
             }),
@@ -187,6 +188,10 @@ describe("syncPendingDeletes", () => {
             first: async () => null,
           }),
         }),
+        batch: async (stmts: { sql: string }[]) => {
+          for (const s of stmts) runs.push(s.sql);
+          return [];
+        },
       },
     } as unknown as Env;
   }
