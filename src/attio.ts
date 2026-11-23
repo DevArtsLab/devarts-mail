@@ -20,6 +20,7 @@ import {
   enqueueAttioDeletes,
   pendingAttioDeletes,
   removeAttioDelete,
+  removeAttioDeleteRefs,
   deferAttioDelete,
 } from "./db";
 
@@ -134,13 +135,20 @@ export async function deleteAttioEmailNotes(
   budget?: AttioBudget,
 ): Promise<void> {
   if (!attioEnabled(env)) return;
+  const deleted: string[] = [];
   for (const noteId of attioNoteIds(e)) {
     try {
       await attioDelete(env, `/notes/${noteId}`, budget);
+      deleted.push(noteId);
     } catch (err) {
       console.error("attio note delete failed:", noteId, err);
     }
   }
+  // Successful deletes need no cron retry; drop their queue rows so the
+  // drain does not spend calls re-deleting them.
+  await removeAttioDeleteRefs(env, "note", deleted).catch((err) =>
+    console.error("attio delete queue cleanup failed:", err),
+  );
 }
 
 /** Best-effort remote delete of an event's Attio meeting (queued already). */
@@ -154,7 +162,11 @@ export async function deleteAttioMeeting(
     await attioDelete(env, `/meetings/${ev.attioMeetingId}`, budget);
   } catch (err) {
     console.error("attio meeting delete failed:", ev.attioMeetingId, err);
+    return;
   }
+  await removeAttioDeleteRefs(env, "meeting", [ev.attioMeetingId]).catch((err) =>
+    console.error("attio delete queue cleanup failed:", err),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -283,12 +295,15 @@ async function syncEvents(
         await enqueueAttioDeletes(env, [{ kind: "meeting", remoteId: oldId }]);
       }
       await setEventAttioSynced(env, ev.uid, meetingId);
-      // Best-effort immediate delete; the queue row covers failures and
-      // is cleaned up by the cron drain (404 = success).
+      // Best-effort immediate delete; the queue row covers failures.
+      // On success drop the queue row so the cron does not re-delete.
       if (oldId) {
-        await attioDelete(env, `/meetings/${oldId}`, budget).catch((e) =>
-          console.error("attio old meeting delete failed:", oldId, e),
-        );
+        try {
+          await attioDelete(env, `/meetings/${oldId}`, budget);
+          await removeAttioDeleteRefs(env, "meeting", [oldId]);
+        } catch (e) {
+          console.error("attio old meeting delete failed:", oldId, e);
+        }
       }
     } catch (e) {
       if (isBudgetError(e)) break;

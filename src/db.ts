@@ -25,6 +25,14 @@ export function d1CallsLeft(env: Env): number {
   return e.__d1Left === undefined ? D1_QUERY_BUDGET : e.__d1Left;
 }
 
+/**
+ * Reset the per-invocation D1 budget. Workers can reuse the same env
+ * object across invocations, so every entry point must call this first.
+ */
+export function resetD1Budget(env: Env): void {
+  (env as unknown as { __d1Left?: number }).__d1Left = D1_QUERY_BUDGET;
+}
+
 // ---------------------------------------------------------------------------
 // emails
 // ---------------------------------------------------------------------------
@@ -410,6 +418,23 @@ export async function enqueueAttioDeletes(
            (kind, remote_id, attempts, next_attempt_at, created_at)
          VALUES (?, ?, 0, ?, ?)`,
       ).bind(it.kind, it.remoteId, now, now),
+    ),
+  );
+}
+
+/** Drop queue rows for remote IDs already deleted (one batch = one query). */
+export async function removeAttioDeleteRefs(
+  env: Env,
+  kind: "note" | "meeting",
+  remoteIds: string[],
+): Promise<void> {
+  if (remoteIds.length === 0) return;
+  d1Take(env);
+  await env.DB.batch(
+    remoteIds.map((id) =>
+      env.DB.prepare(
+        `DELETE FROM attio_deletion_queue WHERE kind = ? AND remote_id = ?`,
+      ).bind(kind, id),
     ),
   );
 }
