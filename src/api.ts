@@ -13,6 +13,7 @@ import {
 } from "./auth";
 import { buildInviteIcs, buildCancelIcs, buildExportIcs, newUid } from "./ical";
 import { findIdentity, listIdentities, primaryIdentity } from "./identities";
+import { deleteAttioEmailNotes, deleteAttioMeeting } from "./attio";
 
 function json(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), {
@@ -82,6 +83,7 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
       return json({ email });
     }
     if (!action && method === "DELETE") {
+      await deleteAttioEmailNotes(env, email);
       await db.deleteEmail(env, id);
       return json({ ok: true });
     }
@@ -233,6 +235,7 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
       if (notify && existing.isOwn && existing.attendees.length) {
         await sendCancelEmails(env, existing);
       }
+      await deleteAttioMeeting(env, existing);
       await db.deleteEventRow(env, uid);
       return json({ ok: true });
     }

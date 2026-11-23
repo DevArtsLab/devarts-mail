@@ -57,6 +57,7 @@
     // Google/Microsoft mailboxes, this covers everything else.
     // Requires the ATTIO_ACCESS_TOKEN secret (Attio -> Settings ->
     // Developers -> Access tokens) with record/note/meeting read-write.
+    // TRIAL: set back to "false" when the Attio trial ends.
     "ATTIO_SYNC_ENABLED": "true",
     // ATTIO_IGNORE_ADDRESSES: comma-separated extra "self" addresses
     // excluded from sync (e.g. the Gmail that receives PUBLISH copies

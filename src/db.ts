@@ -116,6 +116,17 @@ export async function markEmailAttioSynced(env: Env, id: string): Promise<void> 
     .run();
 }
 
+/** Persist the participant -> Attio note_id map for an email. */
+export async function saveEmailAttioNotes(
+  env: Env,
+  id: string,
+  notes: Record<string, string>,
+): Promise<void> {
+  await env.DB.prepare(`UPDATE emails SET attio_notes = ? WHERE id = ?`)
+    .bind(JSON.stringify(notes), id)
+    .run();
+}
+
 export async function deleteEmail(env: Env, id: string): Promise<void> {
   await env.DB.prepare(`DELETE FROM emails WHERE id = ?`).bind(id).run();
 }

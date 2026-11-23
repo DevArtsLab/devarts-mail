@@ -79,6 +79,8 @@ export interface StoredEmail {
   received_at: number;
   /** Set once the email has been mirrored to Attio. */
   attio_synced_at?: number | null;
+  /** JSON map of participant address -> Attio note_id (see attio.ts). */
+  attio_notes?: string | null;
   /** List view only: first chars of body_text (not present on getEmail). */
   snippet?: string;
 }

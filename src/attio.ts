@@ -11,6 +11,7 @@ import {
   emailsPendingAttio,
   markEmailAttioSynced,
   eventsPendingAttio,
+  saveEmailAttioNotes,
   setEventAttioSynced,
 } from "./db";
 
@@ -48,10 +49,39 @@ export const FREEMAIL_DOMAINS = new Set([
   "yandex.com",
 ]);
 
+function attioEnabled(env: Env): boolean {
+  return env.ATTIO_SYNC_ENABLED === "true" && !!env.ATTIO_ACCESS_TOKEN;
+}
+
 export async function syncAttio(env: Env): Promise<void> {
-  if (env.ATTIO_SYNC_ENABLED !== "true" || !env.ATTIO_ACCESS_TOKEN) return;
+  if (!attioEnabled(env)) return;
   await syncEmails(env);
   await syncEvents(env);
+}
+
+/** Remove the Attio notes created for an email (called on local delete). */
+export async function deleteAttioEmailNotes(env: Env, e: StoredEmail): Promise<void> {
+  if (!attioEnabled(env)) return;
+  for (const noteId of Object.values(parseNoteMap(e.attio_notes))) {
+    try {
+      await attioDelete(env, `/notes/${noteId}`);
+    } catch (err) {
+      console.error("attio note delete failed:", noteId, err);
+    }
+  }
+}
+
+/** Remove the Attio meeting for an event (called on local delete). */
+export async function deleteAttioMeeting(
+  env: Env,
+  ev: { attioMeetingId?: string | null },
+): Promise<void> {
+  if (!attioEnabled(env) || !ev.attioMeetingId) return;
+  try {
+    await attioDelete(env, `/meetings/${ev.attioMeetingId}`);
+  } catch (err) {
+    console.error("attio meeting delete failed:", ev.attioMeetingId, err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -60,23 +90,22 @@ export async function syncAttio(env: Env): Promise<void> {
 
 async function syncEmails(env: Env): Promise<void> {
   for (const email of await emailsPendingAttio(env, EMAIL_BATCH)) {
+    // addr -> note_id for notes already created; retries skip these so a
+    // partial failure never produces duplicate notes in Attio.
+    const noted = parseNoteMap(email.attio_notes);
     try {
       const external = externalAddresses(env, email);
-      if (external.length === 0) {
+      const pending = external.filter((a) => !(a in noted));
+      if (pending.length === 0) {
         await markEmailAttioSynced(env, email.id);
         continue;
       }
       const { title, content } = buildEmailNote(env, email);
-      for (const addr of external.slice(0, MAX_PARTICIPANTS)) {
-        const dom = domainOf(addr);
-        if (dom && !FREEMAIL_DOMAINS.has(dom)) {
-          await upsertCompany(env, dom).catch((e) =>
-            console.error("attio upsertCompany failed:", dom, e),
-          );
-        }
-        const personId = await upsertPerson(env, addr);
-        if (personId) {
-          await attioFetch(env, "POST", "/notes", {
+      for (const addr of pending.slice(0, MAX_PARTICIPANTS)) {
+        try {
+          const personId = await upsertPerson(env, addr);
+          if (!personId) throw new Error("no record_id in person response");
+          const res = await attioFetch(env, "POST", "/notes", {
             data: {
               parent_object: "people",
               parent_record_id: personId,
@@ -85,11 +114,20 @@ async function syncEmails(env: Env): Promise<void> {
               content,
             },
           });
+          const noteId = res?.data?.id?.note_id;
+          if (!noteId) throw new Error("no note_id in note response");
+          noted[addr] = noteId;
+          await saveEmailAttioNotes(env, email.id, noted);
+        } catch (e) {
+          // Stays unnoted and is retried on the next run; participants
+          // that already succeeded are skipped, so no duplicates.
+          console.error("attio note sync failed:", email.id, addr, e);
         }
       }
-      await markEmailAttioSynced(env, email.id);
+      if (external.every((a) => a in noted)) {
+        await markEmailAttioSynced(env, email.id);
+      }
     } catch (e) {
-      // Left pending; retried on the next cron run.
       console.error("attio email sync failed:", email.id, e);
     }
   }
@@ -104,7 +142,7 @@ async function syncEvents(env: Env): Promise<void> {
     try {
       if (ev.status === "CANCELLED") {
         if (ev.attioMeetingId) {
-          await attioFetch(env, "DELETE", `/meetings/${ev.attioMeetingId}`);
+          await attioDelete(env, `/meetings/${ev.attioMeetingId}`);
         }
         await setEventAttioSynced(env, ev.uid, null);
         continue;
@@ -112,8 +150,15 @@ async function syncEvents(env: Env): Promise<void> {
       const body = { data: buildMeetingBody(env, ev) };
       let meetingId = ev.attioMeetingId;
       if (meetingId) {
-        await attioFetch(env, "PATCH", `/meetings/${meetingId}`, body);
-      } else {
+        try {
+          await attioFetch(env, "PATCH", `/meetings/${meetingId}`, body);
+        } catch (e) {
+          // Meeting gone in Attio: fall through and re-create it.
+          if ((e as { status?: number }).status !== 404) throw e;
+          meetingId = null;
+        }
+      }
+      if (!meetingId) {
         const res = await attioFetch(env, "POST", "/meetings", body);
         meetingId = res?.data?.id?.meeting_id;
         if (!meetingId) throw new Error("no meeting_id in response");
@@ -244,6 +289,14 @@ function mapPartstat(p?: string): "accepted" | "tentative" | "declined" | "pendi
   }
 }
 
+function parseNoteMap(json?: string | null): Record<string, string> {
+  try {
+    return JSON.parse(json || "{}");
+  } catch {
+    return {};
+  }
+}
+
 function parseAddrs(json: string): string[] {
   try {
     return JSON.parse(json || "[]");
@@ -294,27 +347,48 @@ async function attioFetch(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) {
-    throw new Error(`Attio ${method} ${path}: ${r.status} ${await r.text()}`);
+    const err = new Error(
+      `Attio ${method} ${path}: ${r.status} ${await r.text()}`,
+    ) as Error & { status?: number };
+    err.status = r.status;
+    throw err;
   }
   return r.status === 204 ? null : r.json();
 }
 
+/** DELETE that tolerates 404 (resource already gone in Attio). */
+async function attioDelete(env: Env, path: string): Promise<void> {
+  try {
+    await attioFetch(env, "DELETE", path);
+  } catch (e) {
+    if ((e as { status?: number }).status !== 404) throw e;
+  }
+}
+
 async function upsertPerson(env: Env, email: string): Promise<string | null> {
+  const values: Record<string, unknown> = {
+    email_addresses: [{ email_address: email }],
+  };
+  // Link work-domain people to a company record, created on first sight.
+  const dom = domainOf(email);
+  if (dom && !FREEMAIL_DOMAINS.has(dom)) {
+    values.company = [
+      {
+        target_object: "companies",
+        target_record_reference: {
+          match: { domains: [dom] },
+          if_unmatched: "create",
+          if_multiple_matches: "error",
+          create: { name: dom },
+        },
+      },
+    ];
+  }
   const res = await attioFetch(
     env,
     "PUT",
     "/objects/people/records?matching_attribute=email_addresses",
-    { data: { values: { email_addresses: [{ email_address: email }] } } },
-  );
-  return res?.data?.id?.record_id ?? null;
-}
-
-async function upsertCompany(env: Env, domain: string): Promise<string | null> {
-  const res = await attioFetch(
-    env,
-    "PUT",
-    "/objects/companies/records?matching_attribute=domains",
-    { data: { values: { domains: [{ domain }] } } },
+    { data: { values } },
   );
   return res?.data?.id?.record_id ?? null;
 }

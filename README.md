@@ -59,16 +59,16 @@ That's it. The installer:
 
 Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, cron, routes, and all app variables:
 
-| Var                       | Default               | Meaning                                   |
-| ------------------------- | --------------------- | ----------------------------------------- |
-| `MAIL_DOMAIN`             | `devartslab.com`      | Your domain                               |
-| `PRIMARY_ADDRESS`         | `amir@devartslab.com` | Primary send/receive identity             |
-| `DISPLAY_NAME`            | `Amir \| DevArts Lab` | From-name on outgoing mail                |
-| `AUTO_ACCEPT_INVITES`     | `"false"`             | Auto-accept incoming invites              |
-| `INVITE_REMINDER_MINUTES` | `"30"`                | Reminder email before events (`0` = off)  |
-| `SESSION_TTL_HOURS`       | `"168"`               | UI session length                         |
-| `ATTIO_SYNC_ENABLED`      | `"false"`             | Mirror mail/calendar to Attio CRM         |
-| `ATTIO_IGNORE_ADDRESSES`  | `""`                  | Extra "self" addresses excluded from sync |
+| Var                       | Default               | Meaning                                                               |
+| ------------------------- | --------------------- | --------------------------------------------------------------------- |
+| `MAIL_DOMAIN`             | `devartslab.com`      | Your domain                                                           |
+| `PRIMARY_ADDRESS`         | `amir@devartslab.com` | Primary send/receive identity                                         |
+| `DISPLAY_NAME`            | `Amir \| DevArts Lab` | From-name on outgoing mail                                            |
+| `AUTO_ACCEPT_INVITES`     | `"false"`             | Auto-accept incoming invites                                          |
+| `INVITE_REMINDER_MINUTES` | `"30"`                | Reminder email before events (`0` = off)                              |
+| `SESSION_TTL_HOURS`       | `"168"`               | UI session length                                                     |
+| `ATTIO_SYNC_ENABLED`      | `"true"`              | Mirror mail/calendar to Attio CRM (trial: set `"false"` when it ends) |
+| `ATTIO_IGNORE_ADDRESSES`  | `""`                  | Extra "self" addresses excluded from sync                             |
 
 | Secret               | Meaning                                                                                                                                                                                              |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -79,6 +79,11 @@ Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, c
 | `ATTIO_ACCESS_TOKEN` | Attio workspace access token (Settings → Developers → Access tokens) for the CRM sync. Scopes: `record_permission:read-write`, `object_configuration:read`, `note:read-write`, `meeting:read-write`. |
 
 Secrets live in `.dev.vars` locally / `wrangler secret` in prod.
+
+Attio sync notes: deleting an email or event in the UI also deletes its
+Attio copy (notes on person records, meetings). Cancelling an invite
+removes the Attio meeting. `ATTIO_SYNC_ENABLED` is `"true"` for the
+trial — set it to `"false"` in `wrangler.jsonc` when the trial ends.
 
 ## 📁 Layout
 
