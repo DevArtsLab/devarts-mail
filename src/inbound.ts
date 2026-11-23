@@ -1,6 +1,6 @@
 // Inbound email handler: parse -> store -> calendar side-effects.
 
-import type { Env } from "./types";
+import type { CalEvent, Env } from "./types";
 import { parseInbound, sendMail } from "./mail";
 import { parseIcs, buildReplyIcs, buildExportIcs } from "./ical";
 import { identityForEmail, primaryIdentity } from "./identities";
@@ -25,6 +25,8 @@ export async function handleInbound(
   let method: string | null = null;
   let needsReply: { uid: string } | null = null;
 
+  let calendarApplied = false;
+
   if (parsed.calendar) {
     const cal = parseIcs(parsed.calendar.ics);
     method = (parsed.calendar.method || cal.method || "").toUpperCase() || null;
@@ -33,32 +35,17 @@ export async function handleInbound(
     if (ev?.uid) {
       eventUid = ev.uid;
 
-      if (method === "REQUEST") {
-        // New or updated invite: store it, mark RSVP pending.
-        const existing = await getEvent(env, ev.uid);
-        await upsertEvent(env, ev, {
-          myPartstat:
-            existing?.myPartstat === "ACCEPTED" &&
-            ev.sequence <= (existing.sequence ?? 0)
-              ? "ACCEPTED" // silent update to an accepted event
-              : "NEEDS-ACTION",
-          rawIcs: parsed.calendar.ics,
-        });
-        needsReply = { uid: ev.uid };
-      } else if (method === "CANCEL") {
-        await upsertEvent(
-          env,
-          { ...ev, status: "CANCELLED" },
-          { rawIcs: parsed.calendar.ics },
-        );
-      } else if (method === "REPLY") {
-        // Someone replied to an invite WE sent: record their PARTSTAT.
-        for (const a of ev.attendees) {
-          if (a.partstat) await setAttendeePartstat(env, ev.uid, a.email, a.partstat);
-        }
-      } else if (method) {
-        await upsertEvent(env, ev, { rawIcs: parsed.calendar.ics });
-      }
+      // Trust the envelope sender, not the (easily spoofed) From header.
+      const sender = (message.from || parsed.from || "").toLowerCase();
+      const r = await applyCalendarUpdate(
+        env,
+        sender,
+        method,
+        ev,
+        parsed.calendar.ics,
+      );
+      calendarApplied = r.applied;
+      if (r.needsReply) needsReply = { uid: ev.uid };
     }
   }
 
@@ -82,8 +69,9 @@ export async function handleInbound(
 
   // Mirror invites/cancels to the personal Gmail calendar. Sent as
   // METHOD:PUBLISH so Gmail shows "Add to calendar" but exposes no RSVP
-  // path back to the organizer, and never leaks the Gmail address.
-  if ((method === "REQUEST" || method === "CANCEL") && eventUid) {
+  // path back to the organizer, and never leaks the Gmail address. Only
+  // forward updates that passed the sender check above.
+  if ((method === "REQUEST" || method === "CANCEL") && eventUid && calendarApplied) {
     ctx.waitUntil(forwardEventToGcal(env, eventUid, method));
   }
 
@@ -91,6 +79,81 @@ export async function handleInbound(
   if (needsReply && env.AUTO_ACCEPT_INVITES === "true") {
     ctx.waitUntil(respondToInvite(env, needsReply.uid, "ACCEPTED", emailId));
   }
+}
+
+/**
+ * Apply an inbound iMIP message to the stored event, enforcing who may
+ * write it:
+ *
+ * - Inbound mail can never change an event with is_own: our updates go
+ *   through the API. Otherwise anyone who knows the UID (every attendee
+ *   does) could rewrite or cancel our meeting and hijack its attendee
+ *   list for the next "send updates".
+ * - REQUEST/CANCEL/other methods on a stored event only apply when the
+ *   message sender is the stored organizer.
+ * - REPLY only applies to own events and only updates the attendee whose
+ *   address equals the sender.
+ */
+export async function applyCalendarUpdate(
+  env: Env,
+  sender: string,
+  method: string | null,
+  ev: CalEvent,
+  rawIcs: string,
+): Promise<{ applied: boolean; needsReply: boolean }> {
+  const existing = await getEvent(env, ev.uid);
+  const isOwn = !!existing?.isOwn;
+  const fromOrganizer =
+    !!existing?.organizerEmail &&
+    sender === existing.organizerEmail.toLowerCase();
+
+  if (method === "REQUEST") {
+    if (!existing) {
+      // Fresh invite: store it, mark RSVP pending.
+      await upsertEvent(env, ev, { myPartstat: "NEEDS-ACTION", rawIcs });
+      return { applied: true, needsReply: true };
+    }
+    if (isOwn || !fromOrganizer) return { applied: false, needsReply: false };
+    await upsertEvent(env, ev, {
+      myPartstat:
+        existing.myPartstat === "ACCEPTED" &&
+        ev.sequence <= (existing.sequence ?? 0)
+          ? "ACCEPTED" // silent update to an accepted event
+          : "NEEDS-ACTION",
+      rawIcs,
+    });
+    return { applied: true, needsReply: true };
+  }
+
+  if (method === "CANCEL") {
+    if (existing && (isOwn || !fromOrganizer))
+      return { applied: false, needsReply: false };
+    await upsertEvent(env, { ...ev, status: "CANCELLED" }, { rawIcs });
+    return { applied: true, needsReply: false };
+  }
+
+  if (method === "REPLY") {
+    // An attendee answering an invite WE sent: record only their own
+    // PARTSTAT, and only when the reply comes from that address.
+    if (!isOwn) return { applied: false, needsReply: false };
+    let applied = false;
+    for (const a of ev.attendees) {
+      if (a.partstat && a.email.toLowerCase() === sender) {
+        await setAttendeePartstat(env, ev.uid, a.email, a.partstat);
+        applied = true;
+      }
+    }
+    return { applied, needsReply: false };
+  }
+
+  if (method) {
+    if (existing && (isOwn || !fromOrganizer))
+      return { applied: false, needsReply: false };
+    await upsertEvent(env, ev, { rawIcs });
+    return { applied: true, needsReply: false };
+  }
+
+  return { applied: false, needsReply: false };
 }
 
 /**
