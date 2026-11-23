@@ -44,11 +44,9 @@ export async function parseInbound(rawStream: ReadableStream): Promise<ParsedInb
       break;
     }
   }
-  if (!calendar && raw.includes("BEGIN:VCALENDAR")) {
-    // Some senders embed iCal inline without an attachment part.
-    const m = raw.match(/BEGIN:VCALENDAR[\s\S]*?END:VCALENDAR/);
-    if (m) calendar = { ics: m[0] };
-  }
+  // Deliberately no fallback that scans raw text for BEGIN:VCALENDAR:
+  // treating a quoted calendar block in a plain body as a real invite let
+  // any sender bypass MIME checks to inject calendar content.
 
   return {
     from: addr(parsed.from),
