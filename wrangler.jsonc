@@ -53,7 +53,8 @@
 
     // Cloudflare Access gates the UI/API (Zero Trust dashboard).
     // CF_ACCESS_AUD: the application's AUD tag, from the Access app page.
-    // Leave unset for local dev (auth is then skipped entirely).
+    // Local dev bypasses auth via CF_ACCESS_BYPASS (set by `pnpm dev`), not
+    // by omitting these values: hosted requests fail closed when unset.
     "CF_ACCESS_TEAM_DOMAIN": "devartslab.cloudflareaccess.com",
     "CF_ACCESS_AUD": "2b86e394869fb1b27a6319c227ed33ce0ef362a283a829b740e023fab09bd5bb",
 
