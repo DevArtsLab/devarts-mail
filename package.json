@@ -6,7 +6,7 @@
   "type": "module",
   "packageManager": "pnpm@12.18.0",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --var CF_ACCESS_BYPASS:true",
     "deploy": "wrangler deploy",
     "setup": "node scripts/setup.mjs",
     "migrate:local": "wrangler d1 migrations apply devarts-mail --local",

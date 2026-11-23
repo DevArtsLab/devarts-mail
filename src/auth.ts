@@ -53,32 +53,55 @@ function jwtFromRequest(req: Request): string | null {
  * (local dev), every request is treated as authenticated.
  */
 export async function accessEmail(env: Env, req: Request): Promise<string | null> {
-  if (!env.CF_ACCESS_AUD || !env.CF_ACCESS_TEAM_DOMAIN) return "dev@local";
+  if (env.CF_ACCESS_BYPASS === "true") return "dev@local";
+  if (!env.CF_ACCESS_AUD || !env.CF_ACCESS_TEAM_DOMAIN) return null;
   const token = jwtFromRequest(req);
   if (!token) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
+  let header: { kid?: string };
   try {
-    const header = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
-    let key = (await accessKeys(env)).get(header.kid);
-    if (!key) key = (await accessKeys(env, true)).get(header.kid);
-    if (!key) return null;
-    const ok = await crypto.subtle.verify(
+    header = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
+  } catch {
+    return null;
+  }
+  // Signing-key fetch failures propagate (500) so a cert-service outage
+  // is not mistaken for bad credentials.
+  const kid = header.kid;
+  if (!kid) return null;
+  let key = (await accessKeys(env)).get(kid);
+  if (!key) key = (await accessKeys(env, true)).get(kid);
+  if (!key) return null;
+  let ok = false;
+  try {
+    ok = await crypto.subtle.verify(
       "RSASSA-PKCS1-v1_5",
       key,
       b64urlDecode(parts[2]) as BufferSource,
       new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
     );
-    if (!ok) return null;
-    const claims = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[1])));
-    const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-    if (!aud.includes(env.CF_ACCESS_AUD)) return null;
-    if (claims.iss !== `https://${env.CF_ACCESS_TEAM_DOMAIN}`) return null;
-    if (!claims.exp || claims.exp * 1000 < Date.now()) return null;
-    return claims.email || null;
   } catch {
     return null;
   }
+  if (!ok) return null;
+  let claims: { aud?: unknown; iss?: string; exp?: number; email?: string };
+  try {
+    claims = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[1])));
+  } catch {
+    return null;
+  }
+  const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!aud.includes(env.CF_ACCESS_AUD)) return null;
+  if (claims.iss !== `https://${env.CF_ACCESS_TEAM_DOMAIN}`) return null;
+  if (!claims.exp || claims.exp * 1000 < Date.now()) return null;
+  return claims.email || null;
+}
+
+/** Team Access logout URL, or null when Access is not configured. */
+export function accessLogoutUrl(env: Env): string | null {
+  return env.CF_ACCESS_TEAM_DOMAIN
+    ? `https://${env.CF_ACCESS_TEAM_DOMAIN}/cdn-cgi/access/logout`
+    : null;
 }
 
 /** Clear the Access cookie on logout. */
