@@ -223,7 +223,7 @@ async function openEmail(id, box) {
           <button class="btn small maybe" data-rsvp="TENTATIVE">Maybe</button>
           <button class="btn small danger" data-rsvp="DECLINED">No</button>
           <span class="state">${myStat ? "You replied: " + myStat.toLowerCase() : ""}</span>`
-              : `<span class="state">Ignored: unverified sender</span>`
+              : `<span class="state">Invite not stored</span>`
           }
         </div>`
           : ""
