@@ -55,7 +55,7 @@
     // CF_ACCESS_AUD: the application's AUD tag, from the Access app page.
     // Leave unset for local dev (auth is then skipped entirely).
     "CF_ACCESS_TEAM_DOMAIN": "devartslab.cloudflareaccess.com",
-    "CF_ACCESS_AUD": "",
+    "CF_ACCESS_AUD": "2b86e394869fb1b27a6319c227ed33ce0ef362a283a829b740e023fab09bd5bb",
 
     // Provisioning (used by scripts/setup.mjs)
     "D1_DATABASE_NAME": "devarts-mail",
