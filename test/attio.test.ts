@@ -114,6 +114,18 @@ describe("buildMeetingBody", () => {
     expect(b.participants[0].email_address).toBe("amir@devartslab.com");
   });
 
+  it("keeps location/status/UID when notes exceed the length budget", () => {
+    const b = buildMeetingBody(
+      env,
+      ev({ description: "x".repeat(20000), location: "Room 4" }),
+    );
+    expect(b.description.length).toBeLessThanOrEqual(9000);
+    expect(b.description).toContain("Location: Room 4");
+    expect(b.description).toContain("Status: CONFIRMED");
+    expect(b.description).toContain("UID: u1");
+    expect(b.description).toContain("[truncated]");
+  });
+
   it("uses exclusive date end for all-day events", () => {
     const start = Date.UTC(2026, 10, 15);
     const b = buildMeetingBody(env, ev({ allDay: true, dtstart: start, dtend: start }));

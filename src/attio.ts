@@ -299,21 +299,31 @@ export function buildMeetingBody(env: Env, ev: CalEvent): MeetingBody {
     });
   }
 
-  const desc = [
-    ev.description || "",
+  // Metadata goes last but must survive truncation: budget the free-form
+  // notes so location/status/UID always fit under Attio's 10k limit.
+  const meta = [
     ev.location ? `Location: ${ev.location}` : "",
     `Status: ${ev.status}`,
     `UID: ${ev.uid}`,
   ]
     .filter(Boolean)
     .join("\n");
+  const TRUNCATED = "\n[truncated]";
+  const notesBudget = Math.max(
+    0,
+    MAX_MEETING_DESC - meta.length - TRUNCATED.length - 2,
+  );
+  const rawNotes = ev.description || "";
+  const notes =
+    rawNotes.length > notesBudget
+      ? `${rawNotes.slice(0, notesBudget)}${TRUNCATED}`
+      : rawNotes;
+  const desc = [notes, meta].filter(Boolean).join("\n");
 
   return {
     title: ev.summary || "(untitled event)",
     description:
-      desc.length > MAX_MEETING_DESC
-        ? `${desc.slice(0, MAX_MEETING_DESC)}\n[truncated]`
-        : desc,
+      desc.length > MAX_MEETING_DESC ? desc.slice(0, MAX_MEETING_DESC) : desc,
     is_all_day: ev.allDay,
     start: ev.allDay
       ? { date: day(ev.dtstart) }
