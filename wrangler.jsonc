@@ -50,7 +50,12 @@
     // Behavior
     "AUTO_ACCEPT_INVITES": "false", // "true" to auto-reply ACCEPTED to invites
     "INVITE_REMINDER_MINUTES": "30", // reminder email before events (0=off)
-    "SESSION_TTL_HOURS": "168", // UI session length (7 days)
+
+    // Cloudflare Access gates the UI/API (Zero Trust dashboard).
+    // CF_ACCESS_AUD: the application's AUD tag, from the Access app page.
+    // Leave unset for local dev (auth is then skipped entirely).
+    "CF_ACCESS_TEAM_DOMAIN": "devartslab.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "",
 
     // Provisioning (used by scripts/setup.mjs)
     "D1_DATABASE_NAME": "devarts-mail",

@@ -81,10 +81,7 @@ $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("#login-error").textContent = "";
   try {
-    await api("/api/login", {
-      method: "POST",
-      body: { password: $("#login-password").value },
-    });
+    await api("/api/login", { method: "POST" });
     await boot();
   } catch (err) {
     $("#login-error").textContent = err.message;

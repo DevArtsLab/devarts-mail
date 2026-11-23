@@ -50,9 +50,16 @@ cd devarts-mail
 That's it. The installer:
 
 1. `pnpm install`
-2. generates `.dev.vars` with strong random secrets (and **prints your UI password**)
+2. generates `.dev.vars` for local secrets
 3. runs `wrangler login` if needed (browser OAuth — that's the only interaction)
 4. provisions **D1**, runs **migrations**, uploads **secrets**, **deploys**, and creates the **Email Routing rule** `you@domain → worker`
+
+**Auth:** the UI/API is gated by **Cloudflare Access** (Zero Trust), not a
+password. Create a self-hosted Access application covering
+`mail.devartslab.com` and `devarts-mail.devartslab.workers.dev`, with an
+allow policy for your email (optionally restricted by country). Then set
+`CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD` in `wrangler.jsonc`. Local dev
+skips auth when `CF_ACCESS_AUD` is empty.
 
 ## ⚙️ Unified config — one file
 
@@ -65,12 +72,11 @@ Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, c
 | `DISPLAY_NAME`            | `Amir \| DevArts Lab` | From-name on outgoing mail               |
 | `AUTO_ACCEPT_INVITES`     | `"false"`             | Auto-accept incoming invites             |
 | `INVITE_REMINDER_MINUTES` | `"30"`                | Reminder email before events (`0` = off) |
-| `SESSION_TTL_HOURS`       | `"168"`               | UI session length                        |
+| `CF_ACCESS_TEAM_DOMAIN`   | —                     | Zero Trust team domain for JWT verify    |
+| `CF_ACCESS_AUD`           | —                     | Access application AUD tag               |
 
 | Secret             | Meaning                                                                                                                                                                               |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UI_PASSWORD`      | Web UI login password                                                                                                                                                                 |
-| `SESSION_SECRET`   | HMAC key for session cookies                                                                                                                                                          |
 | `EXTRA_IDENTITIES` | Extra send/receive addresses: `alias@domain=Name;alias2@domain` — kept secret so your addresses stay out of this repo. Each gets a routing rule via `pnpm run setup`.                 |
 | `GCAL_FORWARD_TO`  | Personal Gmail that gets read-only `METHOD:PUBLISH` copies of incoming invites/cancels — Gmail shows "Add to calendar" with no RSVP path and the address is never sent to organizers. |
 

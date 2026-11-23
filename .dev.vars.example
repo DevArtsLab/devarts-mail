@@ -2,11 +2,8 @@
 # For production set each with: wrangler secret put <NAME>
 # (or CLOUDFLARE_API_TOKEN-provisioned via scripts/setup.mjs --secrets)
 
-# Password for the web UI login (required)
-UI_PASSWORD=change-me-strong-password
-
-# HMAC key for signing session cookies (required; any long random string)
-SESSION_SECRET=change-me-long-random-string
+# Web UI auth is Cloudflare Access (Zero Trust), not a password.
+# Local dev skips auth automatically; no UI secrets are needed.
 
 # Extra send/receive identities beyond PRIMARY_ADDRESS (optional).
 # Kept as a secret so your addresses stay out of this public repo.
