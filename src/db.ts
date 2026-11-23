@@ -96,18 +96,27 @@ export async function markEmailRead(env: Env, id: string): Promise<void> {
   await env.DB.prepare(`UPDATE emails SET read = 1 WHERE id = ?`).bind(id).run();
 }
 
-/** Oldest-first emails not yet mirrored to Attio. */
+/** Oldest-first emails not yet mirrored to Attio and past retry backoff. */
 export async function emailsPendingAttio(
   env: Env,
   limit: number,
+  retryBefore: number,
 ): Promise<StoredEmail[]> {
   const r = await env.DB.prepare(
     `SELECT * FROM emails WHERE attio_synced_at IS NULL
+     AND (attio_attempted_at IS NULL OR attio_attempted_at <= ?)
      ORDER BY received_at ASC LIMIT ?`,
   )
-    .bind(limit)
+    .bind(retryBefore, limit)
     .all<StoredEmail>();
   return r.results || [];
+}
+
+/** Record a failed sync attempt so the row backs off before retrying. */
+export async function markEmailAttioAttempted(env: Env, id: string): Promise<void> {
+  await env.DB.prepare(`UPDATE emails SET attio_attempted_at = ? WHERE id = ?`)
+    .bind(Date.now(), id)
+    .run();
 }
 
 export async function markEmailAttioSynced(env: Env, id: string): Promise<void> {
@@ -310,16 +319,26 @@ export async function eventsNeedingReminder(env: Env, nowMs: number, windowMs: n
   return (r.results || []).map(rowToEvent);
 }
 
-/** Events never synced, or changed since the last successful sync. */
-export async function eventsPendingAttio(env: Env, limit: number) {
+/** Events never synced, or changed since the last sync, past retry backoff. */
+export async function eventsPendingAttio(env: Env, limit: number, retryBefore: number) {
   const r = await env.DB.prepare(
     `SELECT * FROM calendar_events
-     WHERE attio_synced_at IS NULL OR updated_at > attio_synced_at
+     WHERE (attio_synced_at IS NULL OR updated_at > attio_synced_at)
+     AND (attio_attempted_at IS NULL OR attio_attempted_at <= ?)
      ORDER BY updated_at ASC LIMIT ?`,
   )
-    .bind(limit)
+    .bind(retryBefore, limit)
     .all<EventRow>();
   return (r.results || []).map(rowToEvent);
+}
+
+/** Record a failed sync attempt so the event backs off before retrying. */
+export async function markEventAttioAttempted(env: Env, uid: string): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE calendar_events SET attio_attempted_at = ? WHERE uid = ?`,
+  )
+    .bind(Date.now(), uid)
+    .run();
 }
 
 export async function setEventAttioSynced(
@@ -328,9 +347,64 @@ export async function setEventAttioSynced(
   meetingId: string | null,
 ): Promise<void> {
   await env.DB.prepare(
-    `UPDATE calendar_events SET attio_meeting_id = ?, attio_synced_at = ? WHERE uid = ?`,
+    `UPDATE calendar_events SET attio_meeting_id = ?, attio_synced_at = ?, attio_attempted_at = NULL WHERE uid = ?`,
   )
     .bind(meetingId, Date.now(), uid)
+    .run();
+}
+
+// --- remote-delete queue (Attio notes/meetings deleted after local row) ---
+
+export async function enqueueAttioDelete(
+  env: Env,
+  kind: "note" | "meeting",
+  remoteId: string,
+): Promise<void> {
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO attio_deletion_queue
+       (kind, remote_id, attempts, next_attempt_at, created_at)
+     VALUES (?, ?, 0, ?, ?)`,
+  )
+    .bind(kind, remoteId, now, now)
+    .run();
+}
+
+export interface PendingAttioDelete {
+  id: number;
+  kind: "note" | "meeting";
+  remote_id: string;
+  attempts: number;
+}
+
+export async function pendingAttioDeletes(
+  env: Env,
+  limit: number,
+  now: number,
+): Promise<PendingAttioDelete[]> {
+  const r = await env.DB.prepare(
+    `SELECT id, kind, remote_id, attempts FROM attio_deletion_queue
+     WHERE next_attempt_at <= ? ORDER BY next_attempt_at ASC LIMIT ?`,
+  )
+    .bind(now, limit)
+    .all<PendingAttioDelete>();
+  return r.results || [];
+}
+
+export async function removeAttioDelete(env: Env, id: number): Promise<void> {
+  await env.DB.prepare(`DELETE FROM attio_deletion_queue WHERE id = ?`).bind(id).run();
+}
+
+export async function deferAttioDelete(
+  env: Env,
+  id: number,
+  attempts: number,
+  nextAttemptAt: number,
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE attio_deletion_queue SET attempts = ?, next_attempt_at = ? WHERE id = ?`,
+  )
+    .bind(attempts, nextAttemptAt, id)
     .run();
 }
 

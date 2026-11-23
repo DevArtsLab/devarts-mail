@@ -46,11 +46,31 @@ export async function handleInbound(
         });
         needsReply = { uid: ev.uid };
       } else if (method === "CANCEL") {
-        await upsertEvent(
-          env,
-          { ...ev, status: "CANCELLED" },
-          { rawIcs: parsed.calendar.ics },
-        );
+        // Only the organizer may cancel: anyone who knows the UID could
+        // otherwise forge a CANCEL and wipe the event (and its Attio
+        // meeting). Verify against the ICS organizer or the stored event.
+        const existing = await getEvent(env, ev.uid);
+        const organizer = (
+          ev.organizerEmail ||
+          existing?.organizerEmail ||
+          ""
+        ).toLowerCase();
+        if (organizer && parsed.from === organizer) {
+          await upsertEvent(
+            env,
+            { ...ev, status: "CANCELLED" },
+            { rawIcs: parsed.calendar.ics },
+          );
+        } else {
+          console.log(
+            "ignoring CANCEL from non-organizer:",
+            parsed.from,
+            "organizer:",
+            organizer || "unknown",
+            "uid:",
+            ev.uid,
+          );
+        }
       } else if (method === "REPLY") {
         // Someone replied to an invite WE sent: record their PARTSTAT.
         for (const a of ev.attendees) {

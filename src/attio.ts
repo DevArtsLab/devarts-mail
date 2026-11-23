@@ -9,15 +9,24 @@ import type { CalEvent, Env, StoredEmail } from "./types";
 import { listIdentities, primaryIdentity } from "./identities";
 import {
   emailsPendingAttio,
+  markEmailAttioAttempted,
   markEmailAttioSynced,
   eventsPendingAttio,
+  markEventAttioAttempted,
   saveEmailAttioNotes,
   setEventAttioSynced,
+  enqueueAttioDelete,
+  pendingAttioDeletes,
+  removeAttioDelete,
+  deferAttioDelete,
 } from "./db";
 
 const BASE = "https://api.attio.com/v2";
 const EMAIL_BATCH = 40;
 const EVENT_BATCH = 20;
+const DELETE_BATCH = 50;
+/** Failed syncs back off this long before the next attempt. */
+const RETRY_DELAY_MS = 30 * 60 * 1000;
 const MAX_BODY_CHARS = 4000;
 const MAX_PARTICIPANTS = 20;
 
@@ -55,8 +64,26 @@ function attioEnabled(env: Env): boolean {
 
 export async function syncAttio(env: Env): Promise<void> {
   if (!attioEnabled(env)) return;
-  await syncEmails(env);
-  await syncEvents(env);
+  const retryBefore = Date.now() - RETRY_DELAY_MS;
+  await syncEmails(env, retryBefore);
+  await syncEvents(env, retryBefore);
+  await syncPendingDeletes(env);
+}
+
+/** Drain the queue of remote deletes that failed after local removal. */
+async function syncPendingDeletes(env: Env): Promise<void> {
+  const now = Date.now();
+  for (const d of await pendingAttioDeletes(env, DELETE_BATCH, now)) {
+    const path = `/${d.kind === "note" ? "notes" : "meetings"}/${d.remote_id}`;
+    try {
+      await attioDelete(env, path);
+      await removeAttioDelete(env, d.id);
+    } catch (e) {
+      const attempts = d.attempts + 1;
+      await deferAttioDelete(env, d.id, attempts, now + attempts * RETRY_DELAY_MS);
+      console.error("attio pending delete failed:", d.remote_id, e);
+    }
+  }
 }
 
 /** Remove the Attio notes created for an email (called on local delete). */
@@ -67,6 +94,11 @@ export async function deleteAttioEmailNotes(env: Env, e: StoredEmail): Promise<v
       await attioDelete(env, `/notes/${noteId}`);
     } catch (err) {
       console.error("attio note delete failed:", noteId, err);
+      // Local row is about to be deleted; queue the remote delete so the
+      // cron can retry instead of losing the note ID forever.
+      await enqueueAttioDelete(env, "note", noteId).catch((e) =>
+        console.error("attio delete enqueue failed:", noteId, e),
+      );
     }
   }
 }
@@ -81,6 +113,9 @@ export async function deleteAttioMeeting(
     await attioDelete(env, `/meetings/${ev.attioMeetingId}`);
   } catch (err) {
     console.error("attio meeting delete failed:", ev.attioMeetingId, err);
+    await enqueueAttioDelete(env, "meeting", ev.attioMeetingId).catch((e) =>
+      console.error("attio delete enqueue failed:", ev.attioMeetingId, e),
+    );
   }
 }
 
@@ -88,11 +123,12 @@ export async function deleteAttioMeeting(
 // emails -> notes on person records (+ company records for real domains)
 // ---------------------------------------------------------------------------
 
-async function syncEmails(env: Env): Promise<void> {
-  for (const email of await emailsPendingAttio(env, EMAIL_BATCH)) {
+async function syncEmails(env: Env, retryBefore: number): Promise<void> {
+  for (const email of await emailsPendingAttio(env, EMAIL_BATCH, retryBefore)) {
     // addr -> note_id for notes already created; retries skip these so a
     // partial failure never produces duplicate notes in Attio.
     const noted = parseNoteMap(email.attio_notes);
+    let failed = false;
     try {
       const external = externalAddresses(env, email);
       const pending = external.filter((a) => !(a in noted));
@@ -121,14 +157,19 @@ async function syncEmails(env: Env): Promise<void> {
         } catch (e) {
           // Stays unnoted and is retried on the next run; participants
           // that already succeeded are skipped, so no duplicates.
+          failed = true;
           console.error("attio note sync failed:", email.id, addr, e);
         }
       }
       if (external.every((a) => a in noted)) {
         await markEmailAttioSynced(env, email.id);
+      } else if (failed) {
+        // Back off so permanent failures cannot starve the batch.
+        await markEmailAttioAttempted(env, email.id);
       }
     } catch (e) {
       console.error("attio email sync failed:", email.id, e);
+      await markEmailAttioAttempted(env, email.id).catch(() => {});
     }
   }
 }
@@ -137,8 +178,8 @@ async function syncEmails(env: Env): Promise<void> {
 // calendar events -> meetings
 // ---------------------------------------------------------------------------
 
-async function syncEvents(env: Env): Promise<void> {
-  for (const ev of await eventsPendingAttio(env, EVENT_BATCH)) {
+async function syncEvents(env: Env, retryBefore: number): Promise<void> {
+  for (const ev of await eventsPendingAttio(env, EVENT_BATCH, retryBefore)) {
     try {
       if (ev.status === "CANCELLED") {
         if (ev.attioMeetingId) {
@@ -147,25 +188,20 @@ async function syncEvents(env: Env): Promise<void> {
         await setEventAttioSynced(env, ev.uid, null);
         continue;
       }
-      const body = { data: buildMeetingBody(env, ev) };
-      let meetingId = ev.attioMeetingId;
-      if (meetingId) {
-        try {
-          await attioFetch(env, "PATCH", `/meetings/${meetingId}`, body);
-        } catch (e) {
-          // Meeting gone in Attio: fall through and re-create it.
-          if ((e as { status?: number }).status !== 404) throw e;
-          meetingId = null;
-        }
+      // Attio meetings are immutable: PATCH only appends linked records,
+      // so any change means delete + recreate.
+      if (ev.attioMeetingId) {
+        await attioDelete(env, `/meetings/${ev.attioMeetingId}`);
       }
-      if (!meetingId) {
-        const res = await attioFetch(env, "POST", "/meetings", body);
-        meetingId = res?.data?.id?.meeting_id;
-        if (!meetingId) throw new Error("no meeting_id in response");
-      }
+      const res = await attioFetch(env, "POST", "/meetings", {
+        data: buildMeetingBody(env, ev),
+      });
+      const meetingId = res?.data?.id?.meeting_id;
+      if (!meetingId) throw new Error("no meeting_id in response");
       await setEventAttioSynced(env, ev.uid, meetingId);
     } catch (e) {
       console.error("attio event sync failed:", ev.uid, e);
+      await markEventAttioAttempted(env, ev.uid).catch(() => {});
     }
   }
 }
@@ -366,29 +402,46 @@ async function attioDelete(env: Env, path: string): Promise<void> {
 }
 
 async function upsertPerson(env: Env, email: string): Promise<string | null> {
-  const values: Record<string, unknown> = {
-    email_addresses: [{ email_address: email }],
-  };
-  // Link work-domain people to a company record, created on first sight.
-  const dom = domainOf(email);
-  if (dom && !FREEMAIL_DOMAINS.has(dom)) {
-    values.company = [
-      {
-        target_object: "companies",
-        target_record_reference: {
-          match: { domains: [dom] },
-          if_unmatched: "create",
-          if_multiple_matches: "error",
-          create: { name: dom },
-        },
-      },
-    ];
-  }
+  const emailValue = { email_addresses: [{ email_address: email }] };
   const res = await attioFetch(
     env,
     "PUT",
     "/objects/people/records?matching_attribute=email_addresses",
-    { data: { values } },
+    { data: { values: emailValue } },
   );
-  return res?.data?.id?.record_id ?? null;
+  const record = res?.data;
+  const recordId = record?.id?.record_id ?? null;
+  if (!recordId) return null;
+
+  // Link work-domain people to a company, but only when the record has
+  // no company yet — never overwrite one set manually in Attio.
+  const dom = domainOf(email);
+  const company = record?.values?.company;
+  const hasCompany = Array.isArray(company) ? company.length > 0 : company != null;
+  if (dom && !FREEMAIL_DOMAINS.has(dom) && record?.values && !hasCompany) {
+    await attioFetch(
+      env,
+      "PUT",
+      "/objects/people/records?matching_attribute=email_addresses",
+      {
+        data: {
+          values: {
+            ...emailValue,
+            company: [
+              {
+                target_object: "companies",
+                target_record_reference: {
+                  match: { domains: [dom] },
+                  if_unmatched: "create",
+                  if_multiple_matches: "error",
+                  create: { name: dom },
+                },
+              },
+            ],
+          },
+        },
+      },
+    );
+  }
+  return recordId;
 }
