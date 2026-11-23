@@ -36,7 +36,17 @@ function loadDotfile(name) {
       .filter((l) => l && !l.startsWith("#") && l.includes("="))
       .map((l) => {
         const i = l.indexOf("=");
-        return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
+        let v = l.slice(i + 1).trim();
+        // dotenv allows quoted values; strip matching quotes so secrets
+        // are uploaded without the quote characters.
+        if (
+          v.length >= 2 &&
+          ((v.startsWith('"') && v.endsWith('"')) ||
+            (v.startsWith("'") && v.endsWith("'")))
+        ) {
+          v = v.slice(1, -1);
+        }
+        return [l.slice(0, i).trim(), v];
       }),
   );
 }
@@ -175,7 +185,7 @@ console.log("-> applying migrations (remote)");
 run(`pnpm exec wrangler d1 migrations apply ${D1_NAME} --remote`);
 
 // --- 3. secrets ----------------------------------------------------------------
-const SECRET_KEYS = ["EXTRA_IDENTITIES"];
+const SECRET_KEYS = ["EXTRA_IDENTITIES", "GCAL_FORWARD_TO"];
 for (const key of SECRET_KEYS) {
   const val = env(key);
   if (!val) {
