@@ -4,7 +4,7 @@ import type { Env, CalEvent, RsvpStatus } from "./types";
 import * as db from "./db";
 import { sendMail } from "./mail";
 import { respondToInvite } from "./inbound";
-import { accessEmail, clearCookie } from "./auth";
+import { accessEmail, clearCookie, accessLogoutUrl } from "./auth";
 import { buildInviteIcs, buildCancelIcs, buildExportIcs, newUid } from "./ical";
 import { findIdentity, listIdentities, primaryIdentity } from "./identities";
 import { attioNoteIds, deleteAttioEmailNotes, deleteAttioMeeting } from "./attio";
@@ -34,7 +34,10 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
     return json({ ok: true, email });
   }
   if (path === "/api/logout" && method === "POST") {
-    return json({ ok: true }, { headers: { "Set-Cookie": clearCookie() } });
+    return json(
+      { ok: true, accessLogout: accessLogoutUrl(env) },
+      { headers: { "Set-Cookie": clearCookie() } },
+    );
   }
   if (path === "/api/session") {
     const email = await accessEmail(env, req);

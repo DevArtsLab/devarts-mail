@@ -3,7 +3,8 @@
 # (or CLOUDFLARE_API_TOKEN-provisioned via scripts/setup.mjs --secrets)
 
 # Web UI auth is Cloudflare Access (Zero Trust), not a password.
-# Local dev skips auth automatically; no UI secrets are needed.
+# `pnpm dev` bypasses Access auth locally (CF_ACCESS_BYPASS);
+# hosted deploys verify the Access JWT and fail closed if it is unset.
 
 # Extra send/receive identities beyond PRIMARY_ADDRESS (optional).
 # Kept as a secret so your addresses stay out of this public repo.

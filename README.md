@@ -55,9 +55,14 @@ That's it. The installer:
 3. runs `wrangler login` if needed (browser OAuth — that's the only interaction)
 4. provisions **D1**, runs **migrations**, uploads **secrets**, **deploys**, and creates the **Email Routing rule** `you@domain → worker`
 
-## 🔐 Access setup (one-time)
-
-Create a self-hosted Access application in the Zero Trust dashboard covering `mail.devartslab.com` and `devarts-mail.devartslab.workers.dev`, with an allow policy for `amirholyaei@gmail.com` (restricted to the US). Copy its AUD tag into `CF_ACCESS_AUD`; leave it empty for local dev, which skips auth.
+The deploy alone does not open the mailbox: the UI/API is gated by
+**Cloudflare Access** (Zero Trust), not a password. Before first sign-in,
+create a self-hosted Access application covering `mail.devartslab.com`
+and `devarts-mail.devartslab.workers.dev`, with an allow policy for your
+email (optionally restricted by country), then set
+`CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD` in `wrangler.jsonc` and redeploy.
+Hosted requests fail closed if either value is missing; `pnpm dev` bypasses
+auth locally via `CF_ACCESS_BYPASS`.
 
 ## ⚙️ Unified config — one file
 

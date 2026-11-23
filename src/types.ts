@@ -15,8 +15,10 @@ export interface Env {
   INVITE_REMINDER_MINUTES: string;
   /** Cloudflare Access team domain (e.g. name.cloudflareaccess.com). */
   CF_ACCESS_TEAM_DOMAIN?: string;
-  /** Cloudflare Access application AUD tag; unset = local dev, no auth. */
+  /** Cloudflare Access application AUD tag. */
   CF_ACCESS_AUD?: string;
+  /** "true" only for local dev (set by `pnpm dev`); bypasses Access checks. */
+  CF_ACCESS_BYPASS?: string;
 
   // secrets (.dev.vars / wrangler secret)
   /** Personal Gmail that receives read-only PUBLISH copies of invites. */

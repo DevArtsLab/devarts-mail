@@ -77,19 +77,16 @@ function showApp() {
   $("#app").classList.remove("hidden");
 }
 
-$("#login-form").addEventListener("submit", async (e) => {
+// Sign-in is a top-level navigation so an expired Access session gets a
+// real redirect to the Cloudflare login page (a fetch cannot navigate).
+$("#login-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  $("#login-error").textContent = "";
-  try {
-    await api("/api/login", { method: "POST" });
-    await boot();
-  } catch (err) {
-    $("#login-error").textContent = err.message;
-  }
+  location.reload();
 });
 $("#logout").addEventListener("click", async () => {
-  await api("/api/logout", { method: "POST" });
-  showLogin();
+  const { accessLogout } = await api("/api/logout", { method: "POST" });
+  if (accessLogout) location.href = accessLogout; // ends the Access session too
+  else showLogin();
 });
 
 // ------------------------------------------------------------------ nav
