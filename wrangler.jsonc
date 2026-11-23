@@ -50,7 +50,12 @@
     // Behavior
     "AUTO_ACCEPT_INVITES": "false", // "true" to auto-reply ACCEPTED to invites
     "INVITE_REMINDER_MINUTES": "30", // reminder email before events (0=off)
-    "SESSION_TTL_HOURS": "168", // UI session length (7 days)
+
+    // Cloudflare Access gates the UI/API (Zero Trust dashboard).
+    // CF_ACCESS_AUD: the application's AUD tag, from the Access app page.
+    // Leave unset for local dev (auth is then skipped entirely).
+    "CF_ACCESS_TEAM_DOMAIN": "devartslab.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "2b86e394869fb1b27a6319c227ed33ce0ef362a283a829b740e023fab09bd5bb",
 
     // Attio CRM sync (optional): emails -> notes on person records,
     // calendar events -> meetings. Attio's own sync only covers

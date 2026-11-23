@@ -29,10 +29,7 @@ pnpm install
 # --- 2. .dev.vars (local secrets; generated if missing) ----------------------
 if [ ! -f .dev.vars ]; then
   bold "-> generating .dev.vars"
-  rand() { node -e "console.log(require('crypto').randomBytes($1).toString('hex'))"; }
   {
-    echo "UI_PASSWORD=$(rand 12)"
-    echo "SESSION_SECRET=$(rand 32)"
     echo "# Optional: needed only if you don't 'wrangler login'"
     echo "# CLOUDFLARE_API_TOKEN="
     echo "# CLOUDFLARE_ACCOUNT_ID="
@@ -40,7 +37,6 @@ if [ ! -f .dev.vars ]; then
     echo "# ATTIO_ACCESS_TOKEN="
   } > .dev.vars
   green "   .dev.vars created (gitignored)"
-  echo "   UI_PASSWORD = $(grep UI_PASSWORD .dev.vars | cut -d= -f2)  <- your web UI password"
 else
   green "-> .dev.vars exists"
 fi
@@ -61,5 +57,5 @@ pnpm run setup
 bold ""
 green "✔ devarts-mail is live"
 echo "  UI       : https://mail.devartslab.com  (or workers.dev URL above)"
-echo "  Password : $(grep UI_PASSWORD .dev.vars | cut -d= -f2)"
+echo "  Auth     : Cloudflare Access (Zero Trust) — no password"
 echo "  Config   : wrangler.jsonc  |  Secrets: .dev.vars / wrangler secrets"

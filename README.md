@@ -24,7 +24,7 @@
 | 🗓️ **Independent calendar** | Create/edit/delete events in your own calendar, send `REQUEST`/`CANCEL` invites, import `.ics` anywhere                            |
 | ⏰ **Reminders**            | Cron trigger emails you before events                                                                                              |
 | 🔄 **Attio sync**           | Mirror emails → notes and events → meetings in Attio (covers providers Attio's Google/Microsoft-only sync can't reach)             |
-| 🔐 **Auth**                 | Password login, HMAC-signed session cookie                                                                                         |
+| 🔐 **Auth**                 | Cloudflare Access (Zero Trust) gates the UI/API; no app-level password                                                              |
 | 🖥️ **UI**                   | Minimal dark interface — Inbox, Sent, Compose, Month-view Calendar                                                                 |
 
 ![screenshot](docs/screenshot.png)
@@ -51,9 +51,13 @@ cd devarts-mail
 That's it. The installer:
 
 1. `pnpm install`
-2. generates `.dev.vars` with strong random secrets (and **prints your UI password**)
+2. generates `.dev.vars` (including `EXTRA_IDENTITIES` if set)
 3. runs `wrangler login` if needed (browser OAuth — that's the only interaction)
 4. provisions **D1**, runs **migrations**, uploads **secrets**, **deploys**, and creates the **Email Routing rule** `you@domain → worker`
+
+## 🔐 Access setup (one-time)
+
+Create a self-hosted Access application in the Zero Trust dashboard covering `mail.devartslab.com` and `devarts-mail.devartslab.workers.dev`, with an allow policy for `amirholyaei@gmail.com` (restricted to the US). Copy its AUD tag into `CF_ACCESS_AUD`; leave it empty for local dev, which skips auth.
 
 ## ⚙️ Unified config — one file
 
@@ -66,14 +70,11 @@ Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, c
 | `DISPLAY_NAME`            | `Amir \| DevArts Lab` | From-name on outgoing mail                                            |
 | `AUTO_ACCEPT_INVITES`     | `"false"`             | Auto-accept incoming invites                                          |
 | `INVITE_REMINDER_MINUTES` | `"30"`                | Reminder email before events (`0` = off)                              |
-| `SESSION_TTL_HOURS`       | `"168"`               | UI session length                                                     |
 | `ATTIO_SYNC_ENABLED`      | `"true"`              | Mirror mail/calendar to Attio CRM (trial: set `"false"` when it ends) |
 | `ATTIO_IGNORE_ADDRESSES`  | `""`                  | Extra "self" addresses excluded from sync                             |
 
 | Secret               | Meaning                                                                                                                                                                                              |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UI_PASSWORD`        | Web UI login password                                                                                                                                                                                |
-| `SESSION_SECRET`     | HMAC key for session cookies                                                                                                                                                                         |
 | `EXTRA_IDENTITIES`   | Extra send/receive addresses: `alias@domain=Name;alias2@domain` — kept secret so your addresses stay out of this repo. Each gets a routing rule via `pnpm run setup`.                                |
 | `GCAL_FORWARD_TO`    | Personal Gmail that gets read-only `METHOD:PUBLISH` copies of incoming invites/cancels — Gmail shows "Add to calendar" with no RSVP path and the address is never sent to organizers.                |
 | `ATTIO_ACCESS_TOKEN` | Attio workspace access token (Settings → Developers → Access tokens) for the CRM sync. Scopes: `record_permission:read-write`, `object_configuration:read`, `note:read-write`, `meeting:read-write`. |

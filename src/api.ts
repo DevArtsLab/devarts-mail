@@ -4,13 +4,7 @@ import type { Env, CalEvent, RsvpStatus } from "./types";
 import * as db from "./db";
 import { sendMail } from "./mail";
 import { respondToInvite } from "./inbound";
-import {
-  signSession,
-  verifySession,
-  sessionCookie,
-  clearCookie,
-  safeEqual,
-} from "./auth";
+import { accessEmail, clearCookie } from "./auth";
 import { buildInviteIcs, buildCancelIcs, buildExportIcs, newUid } from "./ical";
 import { findIdentity, listIdentities, primaryIdentity } from "./identities";
 import { attioNoteIds, deleteAttioEmailNotes, deleteAttioMeeting } from "./attio";
@@ -24,7 +18,7 @@ function json(data: unknown, init: ResponseInit = {}): Response {
 const err = (msg: string, status = 400) => json({ error: msg }, { status });
 
 async function requireAuth(env: Env, req: Request): Promise<Response | null> {
-  if (await verifySession(env, req)) return null;
+  if (await accessEmail(env, req)) return null;
   return err("unauthorized", 401);
 }
 
@@ -35,19 +29,16 @@ export async function handleApi(env: Env, req: Request): Promise<Response> {
 
   // ---- public endpoints ----
   if (path === "/api/login" && method === "POST") {
-    const { password } = await req
-      .json<{ password?: string }>()
-      .catch(() => ({}) as any);
-    if (!password || !safeEqual(password, env.UI_PASSWORD || ""))
-      return err("invalid password", 401);
-    const token = await signSession(env);
-    return json({ ok: true }, { headers: { "Set-Cookie": sessionCookie(token) } });
+    const email = await accessEmail(env, req);
+    if (!email) return err("not signed in via Cloudflare Access", 401);
+    return json({ ok: true, email });
   }
   if (path === "/api/logout" && method === "POST") {
     return json({ ok: true }, { headers: { "Set-Cookie": clearCookie() } });
   }
   if (path === "/api/session") {
-    return json({ authed: await verifySession(env, req) });
+    const email = await accessEmail(env, req);
+    return json({ authed: !!email, email });
   }
 
   // ---- everything below requires auth ----
