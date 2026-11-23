@@ -216,10 +216,15 @@ async function openEmail(id, box) {
           ? `
         <div class="rsvp-bar">
           <span class="badge">Calendar invite</span>
+          ${
+            email.event_uid
+              ? `
           <button class="btn small accept" data-rsvp="ACCEPTED">Yes</button>
           <button class="btn small maybe" data-rsvp="TENTATIVE">Maybe</button>
           <button class="btn small danger" data-rsvp="DECLINED">No</button>
-          <span class="state">${myStat ? "You replied: " + myStat.toLowerCase() : ""}</span>
+          <span class="state">${myStat ? "You replied: " + myStat.toLowerCase() : ""}</span>`
+              : `<span class="state">Ignored: unverified sender</span>`
+          }
         </div>`
           : ""
       }
