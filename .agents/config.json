@@ -1,0 +1,5 @@
+{
+  "permissions": { "allow": [], "deny": [], "ask": [] },
+  "read_config_from": { "windsurf": false, "claude": false },
+  "skills": { "project": [] }
+}
