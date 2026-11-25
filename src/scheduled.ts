@@ -4,6 +4,7 @@ import type { Env } from "./types";
 import { sendMail } from "./mail";
 import { eventsNeedingReminder, getEmail, markReminderSent } from "./db";
 import { findIdentity, identityForEmail, primaryIdentity } from "./identities";
+import { syncAttio } from "./attio";
 
 export async function runScheduled(env: Env): Promise<void> {
   const reminderMin = parseInt(env.INVITE_REMINDER_MINUTES || "0", 10);
@@ -31,5 +32,13 @@ export async function runScheduled(env: Env): Promise<void> {
       });
       await markReminderSent(env, ev.uid);
     }
+  }
+
+  // Mirror new emails + event changes into Attio. Failures leave rows
+  // pending for the next run, so this never blocks the reminder path.
+  try {
+    await syncAttio(env);
+  } catch (e) {
+    console.error("attio sync failed:", e);
   }
 }

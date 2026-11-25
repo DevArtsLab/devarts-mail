@@ -292,6 +292,6 @@ export async function respondToInvite(
   }
 
   // Record our answer regardless — the calendar state is ours.
-  await setMyPartstat(env, uid, partstat);
+  await setMyPartstat(env, uid, partstat, identity.address);
   return { sent, error };
 }

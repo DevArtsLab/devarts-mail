@@ -33,6 +33,8 @@ if [ ! -f .dev.vars ]; then
     echo "# Optional: needed only if you don't 'wrangler login'"
     echo "# CLOUDFLARE_API_TOKEN="
     echo "# CLOUDFLARE_ACCOUNT_ID="
+    echo "# Optional: Attio CRM sync (emails -> notes, events -> meetings)"
+    echo "# ATTIO_ACCESS_TOKEN="
   } > .dev.vars
   green "   .dev.vars created (gitignored)"
 else

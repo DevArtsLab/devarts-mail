@@ -23,7 +23,8 @@
 | �📅 **Calendar invites**    | Parses `text/calendar`, RSVP **Yes / Maybe / No** sends a real iCal `METHOD:REPLY` — organizers see `you@yourdomain.com: Accepted` |
 | 🗓️ **Independent calendar** | Create/edit/delete events in your own calendar, send `REQUEST`/`CANCEL` invites, import `.ics` anywhere                            |
 | ⏰ **Reminders**            | Cron trigger emails you before events                                                                                              |
-| 🔐 **Auth**                 | Password login, HMAC-signed session cookie                                                                                         |
+| 🔄 **Attio sync**           | Mirror emails → notes and events → meetings in Attio (covers providers Attio's Google/Microsoft-only sync can't reach)             |
+| 🔐 **Auth**                 | Cloudflare Access (Zero Trust) gates the UI/API; no app-level password                                                              |
 | 🖥️ **UI**                   | Minimal dark interface — Inbox, Sent, Compose, Month-view Calendar                                                                 |
 
 ![screenshot](docs/screenshot.png)
@@ -67,22 +68,30 @@ auth locally via `CF_ACCESS_BYPASS`.
 
 Everything lives in **`wrangler.jsonc`** — worker, assets, D1, `send_email`, cron, routes, and all app variables:
 
-| Var                       | Default               | Meaning                                  |
-| ------------------------- | --------------------- | ---------------------------------------- |
-| `MAIL_DOMAIN`             | `devartslab.com`      | Your domain                              |
-| `PRIMARY_ADDRESS`         | `amir@devartslab.com` | Primary send/receive identity            |
-| `DISPLAY_NAME`            | `Amir \| DevArts Lab` | From-name on outgoing mail               |
-| `AUTO_ACCEPT_INVITES`     | `"false"`             | Auto-accept incoming invites             |
-| `INVITE_REMINDER_MINUTES` | `"30"`                | Reminder email before events (`0` = off) |
-| `CF_ACCESS_TEAM_DOMAIN`   | —                     | Zero Trust team domain for JWT verify    |
-| `CF_ACCESS_AUD`           | —                     | Access application AUD tag               |
+| Var                       | Default               | Meaning                                                               |
+| ------------------------- | --------------------- | --------------------------------------------------------------------- |
+| `MAIL_DOMAIN`             | `devartslab.com`      | Your domain                                                           |
+| `PRIMARY_ADDRESS`         | `amir@devartslab.com` | Primary send/receive identity                                         |
+| `DISPLAY_NAME`            | `Amir \| DevArts Lab` | From-name on outgoing mail                                            |
+| `AUTO_ACCEPT_INVITES`     | `"false"`             | Auto-accept incoming invites                                          |
+| `INVITE_REMINDER_MINUTES` | `"30"`                | Reminder email before events (`0` = off)                              |
+| `CF_ACCESS_TEAM_DOMAIN`   | —                     | Zero Trust team domain for JWT verify                                 |
+| `CF_ACCESS_AUD`           | —                     | Access application AUD tag                                            |
+| `ATTIO_SYNC_ENABLED`      | `"true"`              | Mirror mail/calendar to Attio CRM (trial: set `"false"` when it ends) |
+| `ATTIO_IGNORE_ADDRESSES`  | `""`                  | Extra "self" addresses excluded from sync                             |
 
-| Secret             | Meaning                                                                                                                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EXTRA_IDENTITIES` | Extra send/receive addresses: `alias@domain=Name;alias2@domain` — kept secret so your addresses stay out of this repo. Each gets a routing rule via `pnpm run setup`.                 |
-| `GCAL_FORWARD_TO`  | Personal Gmail that gets read-only `METHOD:PUBLISH` copies of incoming invites/cancels — Gmail shows "Add to calendar" with no RSVP path and the address is never sent to organizers. |
+| Secret               | Meaning                                                                                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EXTRA_IDENTITIES`   | Extra send/receive addresses: `alias@domain=Name;alias2@domain` — kept secret so your addresses stay out of this repo. Each gets a routing rule via `pnpm run setup`.                                |
+| `GCAL_FORWARD_TO`    | Personal Gmail that gets read-only `METHOD:PUBLISH` copies of incoming invites/cancels — Gmail shows "Add to calendar" with no RSVP path and the address is never sent to organizers.                |
+| `ATTIO_ACCESS_TOKEN` | Attio workspace access token (Settings → Developers → Access tokens) for the CRM sync. Scopes: `record_permission:read-write`, `object_configuration:read`, `note:read-write`, `meeting:read-write`. |
 
 Secrets live in `.dev.vars` locally / `wrangler secret` in prod.
+
+Attio sync notes: deleting an email or event in the UI also deletes its
+Attio copy (notes on person records, meetings). Cancelling an invite
+removes the Attio meeting. `ATTIO_SYNC_ENABLED` is `"true"` for the
+trial — set it to `"false"` in `wrangler.jsonc` when the trial ends.
 
 ## 📁 Layout
 
